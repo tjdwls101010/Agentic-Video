@@ -503,10 +503,34 @@ def test_a_redirect_is_not_followed(tmp_path, audio, provider, monkeypatch):
 
 # -- the command line ---------------------------------------------------------------------------------------------------------
 
-def test_neither_engine_nor_from_json_is_a_usage_error_and_sends_nothing(tmp_path, audio, provider):
+def test_with_no_engine_named_the_default_is_openrouter(tmp_path, audio, provider):
+    provider.script = [OK_REPLY]
     code, res, raw, err = run(tmp_path, audio)
-    assert code == 2 and "--engine" in res["error"]
+    assert code == 0, raw + err
+    assert res["engine"] == "openrouter" and res["model"] == "elevenlabs/scribe-v2"
+    assert len(provider.requests) == 1
+
+
+def test_the_default_engine_with_no_key_stops_and_names_the_local_one(tmp_path, audio, provider, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    code, res, raw, err = run(tmp_path, audio)
+    assert code == 1
+    assert str(openrouter.KEY_FILE) in res["error"] and "--engine local" in res["error"]
     assert provider.requests == []
+    assert not (tmp_path / "t.jsonl").exists() and not (tmp_path / "t.whisper.json").exists()
+
+
+def test_openrouter_flags_with_no_engine_named_are_allowed(tmp_path, audio, provider):
+    provider.script = [OK_REPLY]
+    code, res, raw, err = run(tmp_path, audio, "--no-zdr", "--diarize")
+    assert code == 0, raw + err
+    assert provider.requests[0]["body"]["diarize"] is True
+
+
+def test_from_json_sends_nothing_whatever_the_default_engine_is(tmp_path, audio, provider):
+    code, res, raw, err = from_json(tmp_path, audio, OK_REPLY[2])
+    assert code == 0, raw + err
+    assert res["cost_usd"] == 0 and provider.requests == []
 
 
 def test_engine_and_from_json_exclude_each_other(tmp_path, audio):
@@ -836,7 +860,7 @@ def test_snap_off_on_whisper_leaves_its_edges(tmp_path):
 def test_help_owns_the_engine_choice_keys_and_correction():
     code, _, raw, err = skill("transcribe", "--help")
     assert code == 0
-    for word in ("--engine", "--from-json", "--diarize", "--no-zdr", "--snap", "--chunk", "--item", "compressed", "low_prob", "unmatched", "repeat", "no_speech", "cost_usd", str(openrouter.KEY_FILE.name), "params.item", "Prints:", "Exits:", "one English documentary"):
+    for word in ("--engine", "--from-json", "--diarize", "--no-zdr", "--snap", "--chunk", "--item", "compressed", "low_prob", "unmatched", "repeat", "no_speech", "cost_usd", str(openrouter.KEY_FILE.name), "params.item", "Prints:", "Exits:", "one English documentary", "default openrouter"):
         assert word in raw, word
 
 

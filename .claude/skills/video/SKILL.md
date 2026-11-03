@@ -65,7 +65,7 @@ allowed-tools:
 
 ## Speech as material
 
-- Transcribe with `transcribe`; its `--help` compares the engines and covers correcting and applying the result.
+- Transcribe with `transcribe`. Unless told `--engine local`, it sends the audio to OpenRouter and costs money; its `--help` compares the engines and covers correcting and applying the result.
 - A transcript's times are a claim about the audio, and no check in `transcribe` proves them. When timing decides something and you have a reason to doubt it (a word start from the local engine, a `compressed` range, two transcripts that disagree, a model or language you have not checked), look with `waveform`.
 - `transcript.removeFillers` removes English fillers only unless given a list, and still reports success: pass Korean ones (음, 어, 아, 뭐; discourse markers such as 그러니까, 이제, 약간 only if the user wants them gone). A list removes every match whatever follows it, so 그 and 저 would turn 그 사람은 into 사람은: cut those by word after reading them. A filler the engine left out of the transcript cannot be removed this way. Remove fillers before pauses; the other order leaves a gap where each filler was.
 - `transcript.removePauses` keeps `keepSeconds` on both sides of each pause, so set it to half the gap you want.

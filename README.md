@@ -44,7 +44,7 @@
 | ffmpeg, ffprobe | `brew install ffmpeg` (측정, 그리고 렌더한 그래픽의 인코딩) |
 | Google Chrome | `/Applications/Google Chrome.app` (그래픽 렌더. 없으면 `graphic`이 설치 방법을 알려 주고, Claude는 Chromium 다운로드 전에 먼저 묻습니다) |
 | Apple Silicon | 로컬 음성 인식(`--engine local`, mlx-whisper)에 필요 |
-| OpenRouter 키 | `--engine openrouter`에만 필요. 아래 참고 |
+| OpenRouter 키 | 기본 전사 엔진에 필요. 없으면 `--engine local`. 아래 참고 |
 | 한글 폰트 | `filmcraft-cli exec fonts.list`에 Apple SD Gothic Neo 또는 Noto Sans KR |
 
 `doctor`가 이 표의 대부분을 점검하고, 고칠 명령을 버전까지 채워 줍니다. 설치는 하지 않습니다. 앱보다 새 CLI로 저장한 프로젝트는 앱이 열지 못할 수 있어 CLI 버전이 앱과 다르면 실패로 봅니다.
@@ -55,9 +55,9 @@ uv run .claude/skills/video/scripts/cli.py doctor
 
 ### 전사 엔진
 
-`transcribe`는 `--engine`에 기본값이 없습니다. 오디오가 실수로 밖으로 나가지 않게 하기 위해서입니다.
+`transcribe`의 기본 엔진은 `openrouter`입니다. `--engine`을 주지 않아도 오디오가 전송되고 비용이 듭니다. 맥 밖으로 내보내면 안 되는 소재에는 `--engine local`을 씁니다. 키가 없으면 로컬로 넘어가지 않고 멈춥니다.
 
-| | `--engine local` | `--engine openrouter` |
+| | `--engine local` | `--engine openrouter` (기본) |
 |---|---|---|
 | 모델 | `mlx-community/whisper-large-v3-turbo` (약 1.6GB, 처음 쓸 때 `~/.cache/huggingface`로 받음) | `elevenlabs/scribe-v2` (`--model`로 변경) |
 | 오디오 | 이 맥을 떠나지 않음 | OpenRouter와 모델 공급자에게 전송(`--no-zdr`를 주지 않으면 무보존 경로만) |

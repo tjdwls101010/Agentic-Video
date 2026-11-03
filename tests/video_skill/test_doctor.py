@@ -78,6 +78,11 @@ def test_a_missing_optional_item_does_not_fail(over):
     assert len(failed) == 1 and failed[0]["required"] is False and failed[0]["why"]
 
 
+def test_the_key_check_says_what_goes_without_a_key():
+    why = check(doctor.judge(facts(key_source="none")), "openrouter_key")["why"]
+    assert "--engine local" in why and "default" in why
+
+
 @pytest.mark.parametrize("source", ["env", "file", "none"])
 def test_the_key_check_reports_only_where_the_key_is(source):
     assert check(doctor.judge(facts(key_source=source)), "openrouter_key")["value"] == source

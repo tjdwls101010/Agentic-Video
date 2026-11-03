@@ -48,7 +48,7 @@ def judge(f: Facts) -> dict:
         _check("ffprobe", f.ffprobe, True, "installed" if f.ffprobe else "not installed", "Reads what a media file holds."),
         _check("uvx", f.uvx, True, "installed" if f.uvx else "not installed", "Runs the local speech model in its own environment."),
         _check("whisper_model", f.whisper_cached, False, "cached" if f.whisper_cached else "not cached", "Without it, the first transcribe --engine local downloads a large model." if not f.whisper_cached else "transcribe --engine local starts without a download."),
-        _check("openrouter_key", f.key_source != "none", False, f.key_source, f"Needed only by transcribe --engine openrouter. It is read from OPENROUTER_API_KEY when that is set, otherwise from {openrouter.KEY_FILE}."),
+        _check("openrouter_key", f.key_source != "none", False, f.key_source, f"Needed by transcribe's default engine, openrouter; without it, use --engine local. It is read from OPENROUTER_API_KEY when that is set, otherwise from {openrouter.KEY_FILE}."),
         _check("chrome", f.chrome, False, "installed" if f.chrome else "not installed", "Needed only by graphic, which renders pages in Google Chrome."),
     ]
     if not (f.ffmpeg and f.ffprobe):

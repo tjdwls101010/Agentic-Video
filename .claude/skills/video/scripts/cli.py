@@ -53,7 +53,7 @@ Exits: 0 written; 2 the command line must change (--cuts without --project, more
 
 
 TRANSCRIBE_DESC = f"""\
-Speech to a word-timed FilmCraft transcript, because this FilmCraft build cannot transcribe (transcript.generate and transcript.downloadModel are disabled). Choose where the words come from; there is no default, so audio never leaves this machine by accident.
+Speech to a word-timed FilmCraft transcript, because this FilmCraft build cannot transcribe (transcript.generate and transcript.downloadModel are disabled). The words come from one of two engines (default openrouter, which sends the audio out and costs money; choose --engine local when it must not).
 --engine local: Whisper on this machine ({transcribe.WHISPER_MODEL}). Nothing leaves it and it is free, but it is the slower engine and downloads a large model on first use (`doctor` says whether it is cached). Its word starts run early, often half a second in the middle of speech, and snapping only corrects edges next to real silence: a caption can rise before the voice, and a cut on a word boundary can clip the word.
 --engine openrouter: sends the whole audio track of MEDIA to OpenRouter and the model's provider (only zero-retention routes unless --no-zdr, which lets them keep the audio) and costs money, known only afterwards from cost_usd (listed prices use different units across models). Word edges sit on the voice, --diarize labels speakers, fillers are kept, and the low_prob list is short and holds the misheard names. The key is read from OPENROUTER_API_KEY when that is set, otherwise from {openrouter.KEY_FILE}.
 That comparison comes from one English documentary and has not been tested on Korean speech: on other material treat it as a prediction until `waveform` shows it.
@@ -235,8 +235,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("transcribe", help="speech to a word-timed transcript.set line, from Whisper here or a model through OpenRouter", description=TRANSCRIBE_DESC, formatter_class=fmt)
     p.add_argument("media", type=Path, metavar="MEDIA", help="the media file the project item points at")
     p.add_argument("--out", type=Path, required=True, metavar="X.jsonl", help="where to write the transcript.set line (siblings .txt and the raw reply go next to it); must not exist yet")
-    src = p.add_mutually_exclusive_group(required=True)
-    src.add_argument("--engine", choices=["local", "openrouter"], help="where the words come from; see above")
+    src = p.add_mutually_exclusive_group()
+    src.add_argument("--engine", choices=["local", "openrouter"], help="where the words come from (default openrouter); see above")
     src.add_argument("--from-json", type=Path, metavar="RAW.json", help="reuse a raw reply from an earlier run instead of recognising again")
     p.add_argument("--item", type=int, metavar="ID", help="its project item id (inspect project lists them). Without it, fill in params.item before applying")
     p.add_argument("--language", metavar="CODE", help="spoken language, e.g. ko or en (default: the engine detects it)")
@@ -274,12 +274,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_transcribe(a) -> dict:
-    if a.engine != "openrouter":
+    engine = None if a.from_json else a.engine or "openrouter"
+    if engine != "openrouter":
         sends = {"--diarize": a.diarize, "--no-zdr": not a.zdr, "--chunk": a.chunk is not None}
         used = [flag for flag, on in sends.items() if on]
         if used:
             raise InputError(f"{', '.join(used)} only apply to --engine openrouter, because nothing else sends a request")
-    return transcribe.transcribe(a.media.resolve(), a.out.resolve(), engine=a.engine, from_json=a.from_json.resolve() if a.from_json else None, item=a.item, language=a.language, model=a.model,
+    return transcribe.transcribe(a.media.resolve(), a.out.resolve(), engine=engine, from_json=a.from_json.resolve() if a.from_json else None, item=a.item, language=a.language, model=a.model,
                                  diarize=a.diarize, zdr=a.zdr, snap_mode=a.snap_mode, max_shift=a.max_shift, chunk=a.chunk)
 
 

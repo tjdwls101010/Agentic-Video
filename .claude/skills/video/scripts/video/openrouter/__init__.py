@@ -85,7 +85,7 @@ def ready() -> str:
     _base_url()
     key = load_key()
     if key is None:
-        raise ToolError(f"no OpenRouter API key: put {_KEY_NAME}=<key> in {KEY_FILE} or set it in the environment. Nothing was sent, and nothing falls back to the local engine")
+        raise ToolError(f"no OpenRouter API key: put {_KEY_NAME}=<key> in {KEY_FILE} or set it in the environment. Nothing was sent, and nothing falls back to the local engine: --engine local runs on this machine")
     if not re.fullmatch(r"[\x21-\x7e]+", key):
         raise ToolError(f"the OpenRouter API key has spaces, line breaks or characters a key cannot have; check {KEY_FILE} or {_KEY_NAME}")
     return key
