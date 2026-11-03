@@ -1,17 +1,18 @@
-# Claude-Video: FilmCraft 편집 + 코드 그래픽 스킬
+# Agentic-Video: FilmCraft 편집 + 코드 그래픽 스킬
 
 이 맥에 설치된 [FilmCraft](https://github.com/storytold/filmcraft)(어도비 프리미어 프로를 클론한 오픈소스 편집기)를 Claude Code가 직접 다루게 하는 프로젝트 스킬입니다. "이 영상으로 ○○ 만들어줘"라고 하면, Claude가 사용자와 의논하며 편집합니다. 타이틀·자료 화면·인트로 같은 그래픽과 효과음은 Claude가 코드(HTML/CSS/SVG/Canvas, Web Audio)로 직접 디자인해 투명 영상으로 렌더하고 타임라인에 얹습니다. 결과물은 검수를 통과한 영상과, 사용자가 FilmCraft에서 다시 열어 고칠 수 있는 `.fcproj` 프로젝트, 그리고 다시 고쳐 렌더할 수 있는 그래픽 페이지입니다.
 
 - 스킬 본문: [`.claude/skills/video/SKILL.md`](.claude/skills/video/SKILL.md)(영어, 모델이 읽는 글)
 - 번들 도구: [`.claude/skills/video/scripts/cli.py`](.claude/skills/video/scripts/cli.py)
-- 개발 기록(대조 실험 수치, 버린 대안, 리뷰 내역): 편집은 [PR #1](https://github.com/tjdwls101010/Claude-Video/pull/1), 그래픽·효과음은 [PR #3](https://github.com/tjdwls101010/Claude-Video/pull/3)
+- 개발 기록(대조 실험 수치, 버린 대안, 리뷰 내역): 편집은 [PR #1](https://github.com/tjdwls101010/Agentic-Video/pull/1), 그래픽·효과음은 [PR #3](https://github.com/tjdwls101010/Agentic-Video/pull/3), 전사 엔진과 스킬 정비는 [PR #5](https://github.com/tjdwls101010/Agentic-Video/pull/5)
 
 ## 무엇을 할 수 있나
 
 | 작업 | 예 |
 |---|---|
 | 말 중심 편집 | 공백·필러 정리, 전사를 보며 문장 단위로 자르기, 긴 대담을 핵심 질의응답만 남긴 요약본으로 |
-| 한국어 자막 | 넷플릭스 한국어 규칙(줄당 16자, 2줄, 초당 12자, 5/6~7초)과 실제 화면 폭에 맞춘 자막, 영어 대담의 번역 자막 |
+| 전사 | 로컬 Whisper 또는 OpenRouter 모델로 단어 시간이 있는 전사, 화자 구분, 음파와 단어 시간 대조 |
+| 자막 | 넷플릭스 한국어 규칙(줄당 16자, 2줄, 초당 12자, 5/6~7초)이나 영어 규칙(줄당 42자, 2줄, 초당 20자)과 실제 화면 폭에 맞춘 자막, 영어 대담의 번역 자막, 편집 없이 전사만으로 만든 SRT |
 | 세로 숏폼 | 쇼츠·릴스·틱톡용 리프레이밍(말하는 사람 따라가기), 플랫폼 UI 세이프존 확인 |
 | 몽타주·B-roll | 클립 훑어보기, 장면 전환 감지, 음악 박자 측정과 컷 맞춤, 배경음악 더킹 |
 | 그래픽·모션 그래픽 | 타이틀, 로워서드, 콜아웃, 숫자·데이터 그래픽, 기사 캡처 같은 자료 화면 연출, 그라디언트 바 같은 레이아웃 요소, 인트로를 코드로 디자인해 얹기 |
@@ -42,20 +43,35 @@
 | [uv](https://docs.astral.sh/uv/) | `uv --version` (번들 도구와 mlx-whisper를 격리 실행) |
 | ffmpeg, ffprobe | `brew install ffmpeg` (측정, 그리고 렌더한 그래픽의 인코딩) |
 | Google Chrome | `/Applications/Google Chrome.app` (그래픽 렌더. 없으면 `graphic`이 설치 방법을 알려 주고, Claude는 Chromium 다운로드 전에 먼저 묻습니다) |
-| Apple Silicon | 음성 인식(mlx-whisper)에 필요 |
+| Apple Silicon | 로컬 음성 인식(`--engine local`, mlx-whisper)에 필요 |
+| OpenRouter 키 | 기본 전사 엔진에 필요. 없으면 `--engine local`. 아래 참고 |
 | 한글 폰트 | `filmcraft-cli exec fonts.list`에 Apple SD Gothic Neo 또는 Noto Sans KR |
 
-CLI가 없거나 앱과 버전이 다르면 앱 버전에 맞춰 설치합니다. 앱보다 새 CLI로 저장한 프로젝트는 앱이 열지 못할 수 있습니다.
+`doctor`가 이 표의 대부분을 점검하고, 고칠 명령을 버전까지 채워 줍니다. 설치는 하지 않습니다. 앱보다 새 CLI로 저장한 프로젝트는 앱이 열지 못할 수 있어 CLI 버전이 앱과 다르면 실패로 봅니다.
 
 ```bash
-VER=$(defaults read /Applications/FilmCraft.app/Contents/Info CFBundleShortVersionString)
-gh release download v$VER -R storytold/filmcraft -p "filmcraft-cli-$VER-macos-universal.zip" -p SHA256SUMS.txt
-shasum -a 256 -c --ignore-missing SHA256SUMS.txt
-unzip -o "filmcraft-cli-$VER-macos-universal.zip"
-install -m 755 "filmcraft-cli-$VER-macos-universal/filmcraft-cli" ~/.local/bin/filmcraft-cli
+uv run .claude/skills/video/scripts/cli.py doctor
 ```
 
-음성 인식 모델(`mlx-community/whisper-large-v3-turbo`, 약 1.6GB)은 처음 전사할 때 `~/.cache/huggingface`로 받습니다. Claude는 받기 전에 먼저 묻습니다.
+### 전사 엔진
+
+`transcribe`의 기본 엔진은 `openrouter`입니다. `--engine`을 주지 않아도 오디오가 전송되고 비용이 듭니다. 맥 밖으로 내보내면 안 되는 소재에는 `--engine local`을 씁니다. 키가 없으면 로컬로 넘어가지 않고 멈춥니다.
+
+| | `--engine local` | `--engine openrouter` (기본) |
+|---|---|---|
+| 모델 | `mlx-community/whisper-large-v3-turbo` (약 1.6GB, 처음 쓸 때 `~/.cache/huggingface`로 받음) | `elevenlabs/scribe-v2` (`--model`로 변경) |
+| 오디오 | 이 맥을 떠나지 않음 | OpenRouter와 모델 공급자에게 전송(`--no-zdr`를 주지 않으면 무보존 경로만) |
+| 비용 | 없음 | 있음. 86분 다큐 약 $0.32(측정 당시). 결과의 `cost_usd` |
+| 단어 시간 | 말 중간의 시작이 이른 편. 무음과 맞닿은 경계만 보정 | 음성에 붙음 |
+| 화자 구분 | 없음 | `--diarize` |
+
+영어 다큐 1편(86분)에서 구절 시작이 0.5초 넘게 어긋난 비율은 Whisper+보정이 21.3%였습니다. 기준은 사람이 정답 처리한 값이 아니라 Scribe와 Nemotron 두 시스템의 합의이고, 일부 구간은 스펙트로그램으로 눈으로 확인했습니다. 실제 한국어 음성으로는 재지 않았습니다.
+
+OpenRouter 키는 환경변수 `OPENROUTER_API_KEY`가 있으면 그것을, 없으면 `.claude/skills/video/scripts/video/openrouter/.env`(git 제외)를 읽습니다. 대화에 키를 붙이지 않도록, 키를 클립보드에 복사한 뒤 레포 루트에서 다음을 실행합니다.
+
+```bash
+(umask 077; { printf 'OPENROUTER_API_KEY='; pbpaste; echo; } > .claude/skills/video/scripts/video/openrouter/.env)
+```
 
 ## 쓰기
 
@@ -85,8 +101,10 @@ FilmCraft에 없는 일만 합니다. 모두 `uv run .claude/skills/video/script
 
 | 명령 | 하는 일 |
 |---|---|
-| `transcribe` | mlx-whisper 전사의 단어 시간을 음량으로 잰 발화 구간에 맞춰 `transcript.set` JSONL로 씁니다. 확인할 단어(낮은 확신, 무음 위 단어, 배경음악 위 반복 환각)를 review로 줍니다 |
-| `captions` | 시퀀스 전사, 또는 직접 쓴 번역 SRT(`--cues`)를 한국어 자막 규칙과 FilmCraft 번인 폭에 맞춰 SRT로 씁니다 |
+| `transcribe` | 로컬 Whisper나 OpenRouter 모델의 단어 시간을 `transcript.set` JSONL로 씁니다. 확인할 단어(낮은 확신, 무음 위 단어, 배경음악 위 반복 환각, 말이 될 수 없이 빠른 구간)를 review로 주고, 단어 목록이 잘린 응답은 거부합니다 |
+| `waveform` | 지정한 구간의 파형과 스펙트로그램에 단어·자막 칸을 같은 시간축으로 겹쳐 그립니다. 소리를 못 듣는 Claude가 싱크를 눈으로 확인하는 도구입니다 |
+| `captions` | 시퀀스 전사, 프로젝트 없는 전사 파일(`--transcript`), 또는 직접 쓴 번역 SRT(`--cues`)를 한국어나 영어 자막 규칙(`--rules`)과 FilmCraft 번인 폭에 맞춰 SRT로 씁니다 |
+| `doctor` | 환경을 점검하고 고칠 명령을 줍니다. 설치와 네트워크 사용, 파일 쓰기를 하지 않습니다 |
 | `timeline` | 시퀀스를 요약합니다(클립 수와 무관하게 짧음). 클립별 TC 상세는 파일로 줍니다 |
 | `frames` | 렌더하거나 추출한 프레임을 TC 라벨 시트 한 장으로 만듭니다. 세로 영상이면 쇼츠·릴스·틱톡 세이프존을 겹쳐 그립니다 |
 | `qc` | 결과 파일을 대상별 기준으로 검수합니다. 기준표와 각 기준의 근거(규정/플랫폼 사양/측정/관행/결정)는 `qc --help`에 있습니다. 실패가 있으면 종료 코드 3입니다 |
@@ -96,6 +114,7 @@ FilmCraft에 없는 일만 합니다. 모두 `uv run .claude/skills/video/script
 uv run .claude/skills/video/scripts/cli.py qc out/final.mp4 --target shorts
 uv run .claude/skills/video/scripts/cli.py frames --project out/edit.fcproj --cuts --overlay all --out sheet.png
 uv run .claude/skills/video/scripts/cli.py graphic graphics/title.html --out graphics/title.mov --project edit.fcproj --duration 3
+uv run .claude/skills/video/scripts/cli.py waveform talk.mp4 --at 137.5-140 --words talk.jsonl --out sheet.png
 ```
 
 ## 작업 폴더 `data/`
@@ -140,12 +159,12 @@ data/
 └── scripts/
     ├── cli.py               유일한 진입점(파서·도움말·종료 코드)
     └── video/               유일한 패키지
-        ├── transcribe/ captions/ timeline/ frames/ qc/ graphic/   기능
-        ├── filmcraft/ whisper/ ffmpeg/ mp4/ chrome/               외부 시스템·형식
-        └── timecode.py errors.py                                  공용
+        ├── transcribe/ waveform/ captions/ timeline/ frames/ qc/ graphic/ doctor/   기능
+        ├── filmcraft/ whisper/ openrouter/ ffmpeg/ mp4/ chrome/ subrip.py           외부 시스템·형식
+        └── recognition.py timecode.py errors.py                                     공용
 tests/
 ├── video_skill/             번들 도구 테스트(명령 프로토콜, 순수 코어, 구조 규칙)
-├── filmcraft_facts/         스킬이 기대는 FilmCraft 동작 24개
+├── filmcraft_facts/         스킬이 기대는 FilmCraft 동작
 └── support/                 테스트 공용 도우미
 .mcp.json                    실행 중인 앱용 브리지 MCP
 ```
@@ -158,17 +177,24 @@ tests/
 uv run --with pytest --with pillow --with playwright pytest      # 전부
 uv run --with pytest --with pillow pytest tests/filmcraft_facts # FilmCraft 사실만
 FILMCRAFT_TEST_WHISPER=1 uv run --with pytest --with pillow pytest -k real_whisper  # 실제 Whisper 경로
+FILMCRAFT_TEST_OPENROUTER=1 uv run --with pytest --with pillow pytest -k real_openrouter  # 실제 OpenRouter 경로(약 1센트)
 ```
 
-- 테스트 미디어는 ffmpeg와 macOS `say`로 그때그때 만듭니다. 기대값은 생성 조건이나 표준(EBU Tech 3341, SMPTE 드롭프레임)에서 옵니다.
+- 테스트 미디어는 ffmpeg와 macOS `say`로 그때그때 만듭니다. 기대값은 생성 조건이나 표준(EBU Tech 3341, SMPTE 드롭프레임)에서 옵니다. 공급자 응답 픽스처는 합성 음성에서만 기록했습니다.
+- OpenRouter 테스트는 항상 가짜 키와 로컬 서버를 쓰므로 실제 키가 쓰이지 않습니다. 게이트 테스트만 실제 API를 부릅니다.
 - filmcraft-cli가 없으면 해당 테스트는 이유를 출력하며 건너뜁니다. `test_chrome.py`는 Chrome을 테스트 프로세스 안에서 구동하므로 `--with playwright`가 없으면 건너뜁니다. `graphic` 테스트는 진입점을 `uv run`으로 부르므로 PEP 723 헤더가 Playwright를 공급합니다.
 
-**FilmCraft는 1~2일마다 업데이트됩니다.** 업데이트 뒤 `tests/filmcraft_facts`가 실패하면, 실패한 테스트의 docstring이 가리키는 SKILL.md 문장(또는 `graphic --help` 문구)을 고치거나 지우세요. 테스트를 느슨하게 고치는 것으로 해결하면 안 됩니다.
+**FilmCraft는 1~2일마다 업데이트됩니다.** 업데이트 뒤 `tests/filmcraft_facts`가 실패하면, 실패한 테스트의 docstring이 가리키는 SKILL.md 문장(또는 `--help` 문구)을 고치거나 지우세요. 테스트를 느슨하게 고치는 것으로 해결하면 안 됩니다.
 
 ## 한계
 
 - Claude는 소리를 들을 수 없습니다. 컷의 청감, 음악과 박자가 맞는지는 직접 들어 확인해야 합니다.
-- 화자를 구분하지 못합니다. 질문자와 답변자의 말이 한 자막에 섞일 수 있습니다.
+- 화자 구분은 `--engine openrouter --diarize`에서만 되고, 번호는 엔진의 군집화 결과입니다. 맞는지 확인하는 도구가 없어, 이름을 붙이기 전에 사용자에게 보여 줘야 합니다.
+- 전사 엔진 비교의 근거는 영어 다큐 1편입니다. 실제 한국어 음성, 음악 위 단어 시간, Gemini 계열 모델은 검증하지 않았습니다.
 - 이 FilmCraft 빌드는 자체 음성 인식이 없고, 내레이션(TTS)은 영어만 됩니다.
 - 세이프존 수치는 플랫폼의 광고 가이드 기준입니다. 일반 게시물 UI와는 조금 다를 수 있습니다.
 - 그래픽의 색은 FilmCraft 안에서 왕복이 맞도록 BT.709로 태그합니다. Premiere 같은 다른 플레이어에서의 미세한 감마 차이는 확인하지 않았습니다.
+
+## 라이선스
+
+[MIT](LICENSE)

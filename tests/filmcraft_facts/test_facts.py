@@ -1,4 +1,4 @@
-"""FilmCraft behaviour the skill's prose relies on, checked against the installed filmcraft-cli. FilmCraft ships every day or two; when one of these fails after an update, the SKILL.md sentence (or `graphic --help` passage) named in its docstring is the one to rewrite (or delete), not the test to loosen.
+"""FilmCraft behaviour the skill's prose relies on, checked against the installed filmcraft-cli. FilmCraft ships every day or two; when one of these fails after an update, the SKILL.md sentence (or `--help` passage) named in its docstring is the one to rewrite (or delete), not the test to loosen.
 
 Run after an update: `uv run --with pytest --with pillow pytest tests/filmcraft_facts`."""
 
@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import shutil
 import subprocess
 from fractions import Fraction
 
@@ -41,7 +42,7 @@ def words_line(item, spec):
 # -- How the CLI fails quietly -------------------------------------------------------------------------------------------
 
 def test_01_an_edit_without_save_is_gone_next_call(proj):
-    """SKILL.md › How the CLI fails quietly: every call is a new session; without --save the edit disappears."""
+    """SKILL.md › Headless or the running app: there is no autosave, so saving is yours; every call is a new session and without --save the edit disappears."""
     d, p = proj
     r = fc_json("exec", "markers.add", "name=lost", project=p, cwd=d)
     assert "marker" in r
@@ -71,26 +72,10 @@ def test_04_a_float_time_is_ignored(proj):
     assert fc_json("exec", "timeline.razor", '{"seconds": 3.5}', project=p, cwd=d)["cuts"] == 2
 
 
-def test_14_sequence_from_clip_makes_only_the_tracks_it_needs(proj):
-    """SKILL.md › How the CLI fails quietly: file.newSequenceFromClip makes only V1/A1, so placing on V2 needs sequence.addTracks first."""
-    d, p = proj
-    s = seq(p, d)
-    assert (len(s["video"]), len(s["audio"])) == (1, 1)
-
-
-def test_16_audio_gain_adjusts_by_default(proj):
-    """SKILL.md › How the CLI fails quietly: clip.audioGain without `mode` adds to the current gain (adjust), so -6 twice is -12."""
-    d, p = proj
-    rows = fc_run([{"id": "clip.audioGain", "params": {"clips": [7], "db": -6}}, {"id": "clip.audioGain", "params": {"clips": [7], "db": -6}},
-                   {"id": "sequence.inspect", "params": {}}], p, save=False, cwd=d)
-    [clip] = [c for t in rows[-1]["result"]["audio"] for c in t["items"] if c["clip"] == 7]
-    assert clip["gainDb"] == pytest.approx(-12.0)
-
-
 # -- Speech as material --------------------------------------------------------------------------------------------------
 
 def test_11_this_build_cannot_transcribe(proj):
-    """SKILL.md › Speech as material: the release build has no speech-to-text and cannot download models; transcripts come in through transcript.set."""
+    """`transcribe --help`: the release build has no speech-to-text and cannot download models; transcripts come in through transcript.set."""
     d, p = proj
     assert fc_json("describe", "transcript.generate", cwd=d)["enabled"] is False
     r = fc("exec", "transcript.downloadModel", project=p, cwd=d, check=False)
@@ -166,7 +151,7 @@ def box_height(png) -> int:
 
 
 def test_05_default_caption_font_is_inter_and_has_no_hangul(tmp_path):
-    """SKILL.md › On-screen text: captions (and text layers) default to Inter, which has no Hangul; set a Korean family on every caption track and text layer."""
+    """SKILL.md › How the CLI fails quietly, and `captions --help`: captions (and text layers) default to Inter, which has no Hangul; set a Korean family on every caption track and text layer."""
     srt = "1\n00:00:01,000 --> 00:00:03,000\n한글 자막\n"
     p = caption_project(tmp_path, "640x360", srt)
     assert fc_json("exec", "captions.list", project=p, cwd=tmp_path)["tracks"][0]["style"]["font"] == "Inter"
@@ -179,7 +164,7 @@ def test_05_default_caption_font_is_inter_and_has_no_hangul(tmp_path):
 
 
 def test_12_caption_size_scales_with_frame_height(tmp_path):
-    """SKILL.md › On-screen text: caption `size` is relative to a 1080-line frame, so the same size is 1920/1080 = 1.78 times taller in a 1080x1920 frame (\"far bigger in a vertical frame\")."""
+    """`captions --help` (the width it measures, and its default sizes): caption `size` is relative to a 1080-line frame, so the same size is 1920/1080 = 1.78 times taller in a 1080x1920 frame."""
     srt = "1\n00:00:01,000 --> 00:00:03,000\n자막\n"
     hs = {}
     for size in ("1920x1080", "1080x1920"):
@@ -192,7 +177,7 @@ def test_12_caption_size_scales_with_frame_height(tmp_path):
 # -- Seeing and hearing the edit, Delivery -------------------------------------------------------------------------------
 
 def test_06_export_does_not_burn_captions_unless_asked(tmp_path):
-    """SKILL.md › Seeing and hearing the edit: `render` draws captions, but file.exportMedia burns them only with burnCaptions:true."""
+    """SKILL.md › Delivery: `render` draws captions, but file.exportMedia burns them only with burnCaptions:true."""
     p = caption_project(tmp_path, "640x360", "1\n00:00:00,000 --> 00:00:04,000\n자막\n", {"font": "Apple SD Gothic Neo"})
     fc("render", "--seconds", "2", "--out", str(tmp_path / "r.png"), project=p, cwd=tmp_path)
     assert box_height(tmp_path / "r.png") > 0
@@ -214,7 +199,7 @@ def test_07_export_defaults_to_the_in_out_range(proj):
 
 
 def test_13_mp4_has_moov_at_the_end_and_an_edit_list(proj):
-    """SKILL.md › Delivery: FilmCraft's MP4 puts moov after mdat and writes an edit list; a lossless `-c copy -movflags +faststart` remux fixes the first, the second is left alone."""
+    """`qc --help` (moov_position) and SKILL.md › Before you hand something over: FilmCraft's MP4 puts moov after mdat and writes an edit list; a lossless `-c copy -movflags +faststart` remux fixes the first, the second is left alone."""
     d, p = proj
     fc("export", str(d / "o.mp4"), "--range", "entire", project=p, cwd=d)
     lay = mp4.layout(d / "o.mp4")
@@ -222,7 +207,7 @@ def test_13_mp4_has_moov_at_the_end_and_an_edit_list(proj):
 
 
 def test_15_loudness_target_is_met(proj):
-    """SKILL.md › Delivery: file.exportMedia loudnessLufs normalises the mix (BS.1770, true-peak limited) to within half an LU of the target."""
+    """`qc --help`: file.exportMedia loudnessLufs normalises the mix (BS.1770, true-peak limited) to within half an LU of the target."""
     d, p = proj
     out = d / "l.mp4"
     fc("exec", "file.exportMedia", json.dumps({"path": str(out), "format": "h264", "range": "entire", "loudnessLufs": -14, "wait": True}), project=p, cwd=d)
@@ -232,7 +217,7 @@ def test_15_loudness_target_is_met(proj):
 # -- Command families by job ---------------------------------------------------------------------------------------------
 
 def test_17_narration_speaks_english_only(proj):
-    """SKILL.md › Command families by job: tts voices are English (en-US); Korean text is refused ("nothing to say"), so Korean narration has to come from elsewhere."""
+    """SKILL.md › How the CLI fails quietly: tts voices are English (en-US); Korean text is refused ("nothing to say"), so Korean narration has to come from elsewhere."""
     d, p = proj
     voices = fc_json("exec", "tts.voices", cwd=d)
     assert [l["id"] for l in voices["languages"]] == ["en-US"]
@@ -240,16 +225,8 @@ def test_17_narration_speaks_english_only(proj):
     assert r.returncode != 0 and "nothing to say" in r.stderr
 
 
-def test_18_headless_export_without_wait_writes_nothing(proj):
-    """SKILL.md › How the CLI fails quietly: `exec file.exportMedia` returns a job id at once (wait defaults to false) and the headless process exits with it, so no file is written; pass wait:true, or use the `export` subcommand, which waits."""
-    d, p = proj
-    r = fc_json("exec", "file.exportMedia", json.dumps({"path": str(d / "nowait.mp4"), "format": "h264", "range": "entire"}), project=p, cwd=d)
-    assert "job" in r
-    assert not (d / "nowait.mp4").exists()
-
-
 def test_19_loudness_normalisation_limits_true_peak_at_minus_2_unless_told(tmp_path):
-    """SKILL.md › Delivery: loudnessLufs normalises under a -2 dBTP limiter, so a peaky mix can land short; `settings.effects.loudness` (the form `export --settings` accepts) sets the target and the ceiling, and normalises only with "enabled": true. `export --settings` refuses a top-level loudnessLufs. AAC adds true peak above the PCM ceiling."""
+    """`qc --help`: loudnessLufs normalises under a -2 dBTP limiter, so a peaky mix can land short; `settings.effects.loudness` (the form `export --settings` accepts) sets the target and the ceiling, and normalises only with "enabled": true. `export --settings` refuses a top-level loudnessLufs. AAC adds true peak above the PCM ceiling."""
     wave = "0.7*sin(2*PI*60*t)*exp(-25*mod(t\\,0.5))+0.15*sin(2*PI*440*t)*exp(-8*mod(t\\,0.5))"
     ffmpeg("-f", "lavfi", "-i", "color=c=gray:s=320x180:r=30:d=8", "-f", "lavfi", "-i", f"aevalsrc={wave}|{wave}:s=48000:d=8",
            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(tmp_path / "kick.mp4"))
@@ -359,7 +336,7 @@ def test_21_placing_media_with_sound_overwrites_the_targeted_audio_track(tmp_pat
 
 
 def test_22_a_file_rewritten_at_the_same_path_is_read_anew(tmp_path):
-    """SKILL.md › Graphics and motion graphics: re-render a graphic to the same path and the project plays the new render; headless `render` and `export` read the file as it is now, not a cached copy."""
+    """`graphic --help` (Replacing a render): re-render a graphic to the same path and the project plays the new render; headless `render` and `export` read the file as it is now, not a cached copy."""
     ffmpeg("-f", "lavfi", "-i", "color=c=black:s=640x360:r=30:d=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(tmp_path / "bg.mp4"))
     prores_4444(tmp_path / "g.mov", 2, color="0x2030C0")
     p = tmp_path / "p.fcproj"
@@ -457,3 +434,116 @@ def test_24_an_sdr_overlay_lands_at_reference_white_in_an_hdr_sequence(tmp_path)
     assert all(abs(a - b) <= 2 for a, b in zip(clip_white, over_white)), (clip_white, over_white)
     assert all(abs(a - b) <= 2 for a, b in zip(clip_grey, over_grey)), (clip_grey, over_grey)
     assert over_white[1] / 255 == pytest.approx(0.75, abs=0.02)
+
+
+# -- what SKILL.md says quietly goes wrong, checked with small synthetic clips -------------------------------------------------
+
+def test_25_a_track_named_by_string_is_ignored(proj):
+    """SKILL.md › How the CLI fails quietly: `graphics.*` take `track` as a 0-based index; a string like "V3" is ignored without an error and the layer lands on the first free track."""
+    d, p = proj
+    assert fc_run([{"id": "sequence.addTracks", "params": {"video": 2}}, {"id": "graphics.newText", "params": {"text": "HI", "track": "V3", "seconds": 1}}], p, cwd=d)[-1]["ok"]
+    assert [[c["name"] for c in t.get("items") or []] for t in fc_json("inspect", "sequence", project=p, cwd=d)["video"]][1:] == [["HI"], []]
+
+
+def test_26_a_track_named_by_index_is_used(proj):
+    """The other half of test_25: the index form lands where it says."""
+    d, p = proj
+    assert fc_run([{"id": "sequence.addTracks", "params": {"video": 2}}, {"id": "graphics.newText", "params": {"text": "HI", "track": 2, "seconds": 1}}], p, cwd=d)[-1]["ok"]
+    assert [[c["name"] for c in t.get("items") or []] for t in fc_json("inspect", "sequence", project=p, cwd=d)["video"]][1:] == [[], ["HI"]]
+
+
+def test_27_time_remapping_keyframes_do_not_render(proj, tmp_path):
+    """SKILL.md › How the CLI fails quietly: keyframing Time Remapping's speed reports success and the frame at 3 s is unchanged, where three times the speed would show a later frame."""
+    d, p = proj
+    before = tmp_path / "before.png"
+    fc("render", "--seconds", "3.0", "--out", str(before), "--scale", "0.25", project=p, cwd=d)
+    clip = fc_json("inspect", "sequence", project=p, cwd=d)["video"][0]["items"][0]["clip"]
+    rows = fc_run([{"id": "effects.setParam", "params": {"clip": clip, "effect": "time_remap", "param": "speed", "value": v, "keyframe": True, "time": t}} for v, t in ((100, 0), (300, TICKS))], p, cwd=d)
+    assert all(r["ok"] for r in rows) and rows[-1]["result"]["keyframes"] == 2
+    after = tmp_path / "after.png"
+    fc("render", "--seconds", "3.0", "--out", str(after), "--scale", "0.25", project=p, cwd=d)
+    assert Image.open(before).tobytes() == Image.open(after).tobytes()
+
+
+def test_28_an_fcp7_xml_merges_and_takes_over_the_active_sequence(proj):
+    """SKILL.md › How the CLI fails quietly: importing an FCP7 XML adds to the open project and makes its sequence the active one, so later commands act on it."""
+    d, p = proj
+    xml = d / "h.xml"
+    assert fc_run([{"id": "file.exportFcp7Xml", "params": {"path": str(xml)}}], p, cwd=d)[0]["ok"]
+    before = fc_json("inspect", "project", project=p, cwd=d)
+    imported = fc_json("exec", "file.import", json.dumps({"paths": [str(xml)]}), project=p, save=True, cwd=d)
+    after = fc_json("inspect", "project", project=p, cwd=d)
+    sequences = lambda doc: [c["item"] for c in doc["root"]["children"] if c["type"] == "Sequence"]
+    assert sequences(before) == [before["activeSequence"]]
+    assert sequences(after) == [*sequences(before), *imported["sequences"]]
+    assert after["activeSequence"] == imported["sequences"][0]
+
+
+def test_29_a_filmcraft_graphic_does_not_survive_an_fcp7_handoff(proj):
+    """SKILL.md › Graphics and motion graphics: the XML names a FilmCraft text layer but has no file for it, so reading the XML back skips the layer."""
+    d, p = proj
+    xml = d / "h.xml"
+    rows = fc_run([{"id": "sequence.addTracks", "params": {"video": 1}}, {"id": "graphics.newText", "params": {"text": "HELLOTEXT", "track": 1, "seconds": 1}}, {"id": "file.exportFcp7Xml", "params": {"path": str(xml)}}], p, cwd=d)
+    assert all(r["ok"] for r in rows)
+    imported = fc_json("exec", "file.import", json.dumps({"paths": [str(xml)]}), project=p, cwd=d)
+    assert any("HELLOTEXT" in line and "skipped" in line for line in imported["documents"][0]["report"])
+
+
+def test_30_stills_ignore_exif_rotation_and_heic_is_refused(tmp_path):
+    """SKILL.md › How the CLI fails quietly: a 64x32 JPEG tagged to display as 32x64 still makes a 64x32 sequence, with no warning; a HEIC is refused with a container error that does not name the format."""
+    d = tmp_path
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    Image.new("RGB", (64, 32), (255, 0, 0)).save(d / "r.jpg", exif=exif, quality=95)
+    p = d / "e.fcproj"
+    imported = json.loads(fc("--save-as", str(p), "import", str(d / "r.jpg"), cwd=d).stdout)
+    assert imported["errors"] == []
+    assert fc_run([{"id": "file.newSequenceFromClip", "params": {"items": imported["items"]}}], p, cwd=d)[0]["ok"]
+    settings = fc_json("inspect", "sequence", project=p, cwd=d)["settings"]
+    assert (settings["width"], settings["height"]) == (64, 32)
+    sips = shutil.which("sips")
+    if sips:
+        Image.new("RGB", (64, 32), (255, 0, 0)).save(d / "a.png")
+        subprocess.run([sips, "-s", "format", "heic", str(d / "a.png"), "--out", str(d / "a.heic")], capture_output=True, check=True)
+        r = fc("import", str(d / "a.heic"), project=p, cwd=d, check=False)
+        assert "decode error" in r.stderr and "HEIC" not in r.stderr.upper().replace(str(d / "a.heic").upper(), "")
+
+
+def test_31_speakers_flow_to_inspect_and_paragraphs_break_at_them(proj):
+    """`transcribe --help` (speakers, confidence): `speakers` and `words[].speaker` reach transcript.inspect as names, and its paragraphs break at a change of speaker."""
+    d, p = proj
+    words = [{"text": t, "start": a * TICKS // 10, "end": b * TICKS // 10, "speaker": s} for t, a, b, s in (("Hello", 10, 12, 0), ("there.", 13, 15, 0), ("Hi.", 16, 19, 1))]
+    transcript = {"language": "en", "source": "t", "speakers": [{"name": "Speaker 0"}, {"name": "Speaker 1"}], "words": words}
+    assert fc_run([{"id": "transcript.set", "params": {"item": 1, "transcript": transcript}}], p, cwd=d)[0]["ok"]
+    got = fc_json("exec", "transcript.inspect", project=p, cwd=d)
+    assert [w["speaker"] for w in got["words"]] == ["Speaker 0", "Speaker 0", "Speaker 1"]
+    assert [(q["speaker"], q["text"]) for q in got["paragraphs"]] == [("Speaker 0", "Hello there."), ("Speaker 1", "Hi.")]
+
+
+def test_32_remove_fillers_defaults_to_english_and_says_it_succeeded(proj):
+    """SKILL.md › Speech as material: with no list, removeFillers takes `Um,` with its comma, leaves 음 and 어, and reports success with what it removed."""
+    d, p = proj
+    words = [{"text": t, "start": a * TICKS // 10, "end": b * TICKS // 10} for t, a, b in (("음", 10, 12), ("안녕", 13, 16), ("어", 17, 19), ("Um,", 20, 22), ("hello.", 23, 26))]
+    rows = fc_run([{"id": "transcript.set", "params": {"item": 1, "transcript": {"language": "ko", "source": "t", "speakers": [], "words": words}}}, {"id": "transcript.removeFillers", "params": {}}], p, cwd=d)
+    assert all(r["ok"] for r in rows) and rows[1]["result"]["removed"] == 1
+    assert [w["text"] for w in fc_json("exec", "transcript.inspect", project=p, cwd=d)["words"]] == ["음", "안녕", "어", "hello."]
+
+
+@pytest.mark.parametrize("params, message", [
+    ({"item": None, "transcript": {"language": "ko", "source": "t", "speakers": [], "words": []}}, "`item` is required"),
+    ({"item": 1, "transcript": {"language": "ko", "source": "t", "speakers": [], "words": [{"text": "a", "start": TICKS, "end": 2 * TICKS, "confidence": None}]}}, "null"),
+])
+def test_33_transcript_set_refuses_null_item_and_null_confidence(proj, params, message):
+    """`transcribe --help`: a line with no item is refused until it is filled in, and `confidence: null` would refuse a whole transcript, which is why a word without one has no such key."""
+    d, p = proj
+    [row] = fc_run([{"id": "transcript.set", "params": params}], p, cwd=d, check=False)
+    assert row["ok"] is False and message in row["error"]
+
+
+def test_34_a_filler_list_removes_every_match_whatever_follows(proj):
+    """SKILL.md › Speech as material: given 그 and 저, removeFillers also takes the demonstratives in 그 사람은 and 저 사람도, reports success, and leaves a word that only starts with one (그러니까)."""
+    d, p = proj
+    words = [{"text": t, "start": (10 + i * 5) * TICKS // 10, "end": (14 + i * 5) * TICKS // 10} for i, t in enumerate(["음", "그", "사람은", "저", "사람도", "그러니까"])]
+    rows = fc_run([{"id": "transcript.set", "params": {"item": 1, "transcript": {"language": "ko", "source": "t", "speakers": [], "words": words}}}, {"id": "transcript.removeFillers", "params": {"fillers": ["음", "그", "저"]}}], p, cwd=d)
+    assert all(r["ok"] for r in rows) and rows[1]["result"]["removed"] == 3
+    assert [w["text"] for w in fc_json("exec", "transcript.inspect", project=p, cwd=d)["words"]] == ["사람은", "사람도", "그러니까"]

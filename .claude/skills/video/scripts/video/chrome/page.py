@@ -15,6 +15,8 @@ from video.errors import ToolError
 
 from . import fonts
 
+_CHROME_APP = "Google Chrome.app/Contents/MacOS/Google Chrome"
+
 # Schemes a page may load from. Everything else (http, https, ws) is refused so a re-render draws the same frames months later.
 LOCAL_SCHEMES = {"file", "data", "blob"}
 
@@ -241,6 +243,12 @@ class Page:
         for family, use in uses.items():
             use.drawn_by = sorted(glyphs.get(family, {}).items(), key=lambda kv: -kv[1])
         return list(uses.values())
+
+
+def installed() -> bool:
+    """Whether a browser is where `open_page` would look: VIDEO_CHROME_PATH when set, otherwise Google Chrome's own place, as Playwright's "chrome" channel finds it on a Mac."""
+    override = os.environ.get("VIDEO_CHROME_PATH")
+    return Path(override).exists() if override else (Path("/Applications") / _CHROME_APP).exists() or (Path.home() / "Applications" / _CHROME_APP).exists()
 
 
 @contextmanager

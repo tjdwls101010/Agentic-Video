@@ -333,3 +333,203 @@ def test_non_finite_rule_values_are_usage_errors(tmp_path, args):
     src.write_text("1\n00:00:00,000 --> 00:00:02,000\n좋은 질문이에요.\n", encoding="utf-8")
     code, res, raw, err = skill("captions", "--cues", str(src), "--out", str(tmp_path / "o.srt"), *args, cwd=tmp_path)
     assert code == 2 and res and "error" in res
+
+
+# -- English rules, worked by hand from Netflix's English guide: 42 characters a line (21 units), 20 characters a second, 5/6 s to 7 s --
+
+EN = captions.RULE_PROFILES["en"]
+KO = captions.RULE_PROFILES["ko"]
+
+
+def test_the_korean_profile_is_the_default_rules():
+    assert KO == captions.Rules()
+
+
+def test_english_keeps_punctuation_at_a_line_end_and_korean_does_not():
+    spec = even("Hello, friend.", 0.0, 1.0)
+    assert captions.layout(words(spec), EN, FPS)[0].lines == ["Hello, friend."]
+    assert captions.layout(words(spec), KO, FPS)[0].lines == ["Hello, friend"]
+
+
+def test_english_three_dots_still_become_the_single_ellipsis_character():
+    assert captions.layout(words(even("Well...", 0.0, 1.0)), EN, FPS)[0].lines == ["Well…"]
+
+
+def test_english_lines_hold_42_characters():
+    fits = "aaaaaaaaaa bbbbbbbbbb cccccccccc ddddddddd"
+    assert len(fits) == 42
+    assert captions.layout(words(even(fits, 0.0, 3.0)), EN, FPS)[0].lines == [fits]
+    over = fits + "d"
+    assert captions.layout(words(even(over, 0.0, 3.0)), EN, FPS)[0].lines == ["aaaaaaaaaa bbbbbbbbbb", "cccccccccc dddddddddd"]
+
+
+def test_english_reading_speed_is_20_characters_a_second():
+    at_limit = captions.Cue(0.0, 2.0, ["a" * 40])
+    over = captions.Cue(0.0, 2.0, ["a" * 41])
+    assert captions.violations([at_limit], EN) == []
+    assert [v["kind"] for v in captions.violations([over], EN)] == ["cps"]
+
+
+def test_a_line_breaks_before_a_conjunction_not_after_it():
+    """The guide breaks before conjunctions. 56 characters need two lines. Before `and`: 25 | 30, a clause break (0.5) with the longer line below (2.5 x 0.05), cost 0.625. After `and`: 29 | 26 is no clause break any more (2) and top-heavy."""
+    [cue] = captions.layout(words(even("We walked along the river and then we finally went home.", 0.0, 3.5)), EN, FPS)
+    assert cue.lines == ["We walked along the river", "and then we finally went home."]
+
+
+def test_a_word_merely_ending_in_a_conjunction_is_not_a_clause_end():
+    """`understand` ends in `and`. 47 characters. No break here is at a clause, so balance decides: after `really`, 13 | 32 costs 2 + 9.5 x 0.05 = 2.475; after `understand`, 24 | 21 is top-heavy and costs 2 + 1 + 1.5 x 0.15 = 3.225; after `all`, 6 | 39 costs 2 + 16.5 x 0.05 = 2.825."""
+    [cue] = captions.layout(words(even("We all really understand the problem with this", 0.0, 3.0)), EN, FPS)
+    assert cue.lines == ["We all really", "understand the problem with this"]
+
+
+@pytest.mark.parametrize("text", ["Hello Mr. Sanders, how are you", "We saw Dr. Lee and Ms. Park there", "They came to the U.S. in the spring"])
+def test_an_abbreviation_is_not_a_sentence_end(text):
+    assert [c.lines for c in captions.layout(words(even(text, 0.0, 2.5)), EN, FPS)] == [[text]]
+
+
+def test_a_real_sentence_end_still_ends_a_cue():
+    cues = captions.layout(words(even("Thanks for coming.", 0.0, 1.5) + even("See you tomorrow.", 1.6, 3.0)), EN, FPS)
+    assert [c.lines for c in cues] == [["Thanks for coming."], ["See you tomorrow."]]
+
+
+# -- speaker turns too short to be a caption of their own ---------------------------------------------------------------------
+
+def spoken(*turns):
+    """(speaker, text, start, end) turns → words spread evenly inside each."""
+    return [captions.Word(t, a, b, speaker) for speaker, text, start, end in turns for t, a, b in even(text, start, end)]
+
+
+def test_a_turn_shorter_than_a_cue_can_be_is_not_a_speaker_boundary():
+    """`Yeah` alone cannot last 5/6 s, so it stays in the same cue rather than becoming a flash of its own."""
+    ws = spoken((0, "It was a very long", 0.0, 1.5), (1, "Yeah", 1.55, 1.85), (0, "road to get there", 1.9, 3.0))
+    assert [c.lines for c in captions.layout(ws, EN, FPS)] == [["It was a very long Yeah road to get there"]]
+
+
+def test_a_turn_as_long_as_a_cue_can_be_is_a_boundary():
+    ws = spoken((0, "It was a very long road", 0.0, 1.5), (1, "It was right here", 1.55, 1.55 + 5 / 6), (0, "to get there", 2.5, 3.5))
+    assert [c.lines for c in captions.layout(ws, EN, FPS)] == [["It was a very long road"], ["It was right here"], ["to get there"]]
+
+
+def test_a_short_first_turn_joins_the_one_after_it():
+    ws = spoken((1, "So", 0.0, 0.2), (0, "the road was long", 0.3, 1.6))
+    assert [c.lines for c in captions.layout(ws, EN, FPS)] == [["So the road was long"]]
+
+
+def test_a_short_turn_between_two_other_speakers_joins_the_earlier_one():
+    ws = spoken((0, "First speaker talking", 0.0, 1.5), (1, "Mm", 1.55, 1.75), (2, "Third speaker answers", 1.8, 3.2))
+    assert [c.lines for c in captions.layout(ws, EN, FPS)] == [["First speaker talking Mm"], ["Third speaker answers"]]
+
+
+# -- --transcript: captions with no project ---------------------------------------------------------------------------------------
+
+def transcript_file(path, spec, item=None):
+    path.write_text(json.dumps({"id": "transcript.set", "params": {"item": item, "transcript": {"language": "en", "source": "t", "speakers": [], "words": [
+        {"text": t, "start": round(a * TICKS), "end": round(b * TICKS), **({"speaker": s[0]} if s else {})} for t, a, b, *s in spec]}}}) + "\n")
+    return path
+
+
+def test_a_transcript_makes_captions_with_no_project_and_no_filmcraft(tmp_path, monkeypatch):
+    f = transcript_file(tmp_path / "x.jsonl", even("Hello there, my friend.", 1.0, 2.5))
+    monkeypatch.setenv("PATH", str(tmp_path))
+    code, out, raw, err = skill("captions", "--transcript", str(f), "--rules", "en", "--fps", "30", "--out", str(tmp_path / "c.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    assert [(round(a, 3), lines) for a, b, lines in parse_srt(tmp_path / "c.srt")] == [(1.0, ["Hello there, my friend."])]
+    assert out["next"] == [str(tmp_path / "c.srt")]
+
+
+def test_a_transcript_needs_no_item_and_keeps_speaker_boundaries(tmp_path):
+    spec = [(t, a, b, 0) for t, a, b in even("Tell me about the road.", 0.0, 1.5)] + [(t, a, b, 1) for t, a, b in even("It was very long then", 1.6, 3.0)]
+    f = transcript_file(tmp_path / "x.jsonl", spec)
+    code, out, raw, err = skill("captions", "--transcript", str(f), "--rules", "en", "--fps", "30", "--out", str(tmp_path / "c.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    assert [lines for a, b, lines in parse_srt(tmp_path / "c.srt")] == [["Tell me about the road."], ["It was very long then"]]
+
+
+def test_a_transcript_without_fps_says_it_assumed_one(tmp_path):
+    f = transcript_file(tmp_path / "x.jsonl", even("Hello there.", 1.0, 2.0))
+    code, out, raw, err = skill("captions", "--transcript", str(f), "--out", str(tmp_path / "c.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    assert any("--fps" in n for n in out["notes"])
+
+
+def test_frame_size_applies_to_a_transcript(tmp_path):
+    f = transcript_file(tmp_path / "x.jsonl", even("Hello there.", 1.0, 2.0))
+    code, out, raw, err = skill("captions", "--transcript", str(f), "--frame", "1080x1920", "--out", str(tmp_path / "c.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    assert out["style"]["size"] == 40.0
+
+
+@pytest.mark.parametrize("content", ["not json\n", '{"id": "other"}\n'])
+def test_an_unreadable_transcript_is_a_usage_error(tmp_path, content):
+    f = tmp_path / "x.jsonl"
+    f.write_text(content)
+    code, out, raw, err = skill("captions", "--transcript", str(f), "--out", str(tmp_path / "c.srt"), cwd=tmp_path)
+    assert code == 2 and "x.jsonl" in out["error"]
+
+
+def test_a_transcript_with_no_words_is_a_usage_error(tmp_path):
+    f = transcript_file(tmp_path / "x.jsonl", [])
+    code, out, raw, err = skill("captions", "--transcript", str(f), "--out", str(tmp_path / "c.srt"), cwd=tmp_path)
+    assert code == 2 and "words" in out["error"]
+
+
+def test_transcript_excludes_the_other_sources(tmp_path):
+    code, *_ = skill("captions", "--transcript", "x.jsonl", "--cues", "y.srt", "--out", "o.srt", cwd=tmp_path)
+    assert code == 2
+
+
+# -- the profile is a default, not a lock ---------------------------------------------------------------------------------------------
+
+def fast_then_next(tmp_path):
+    """30 characters shown for 1.533 s (until 2 frames before the other speaker's cue, which it cannot share) is 19.6 a second."""
+    first = [(t, a, b, 0) for t, a, b in even("aaaa bbbb cccc dddd eeee ffff.", 0.0, 1.5)]
+    second = [(t, a, b, 1) for t, a, b in even("Next one follows at once here.", 1.6, 3.5)]
+    return transcript_file(tmp_path / "x.jsonl", first + second)
+
+
+def test_english_rules_allow_what_korean_rules_report(tmp_path):
+    f = fast_then_next(tmp_path)
+    code, out, raw, err = skill("captions", "--transcript", str(f), "--rules", "en", "--fps", "30", "--out", str(tmp_path / "c.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    assert [v["kind"] for v in out["violations"]] == []
+    code, out, raw, err = skill("captions", "--transcript", str(f), "--fps", "30", "--out", str(tmp_path / "c.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    assert "cps" in [v["kind"] for v in out["violations"]]
+
+
+def test_an_explicit_cps_overrides_the_profile(tmp_path):
+    f = fast_then_next(tmp_path)
+    code, out, raw, err = skill("captions", "--transcript", str(f), "--rules", "en", "--cps", "12", "--fps", "30", "--out", str(tmp_path / "c.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    assert "cps" in [v["kind"] for v in out["violations"]]
+
+
+def test_an_explicit_lines_overrides_the_profile(tmp_path):
+    f = transcript_file(tmp_path / "x.jsonl", even("We walked along the river and then we finally went home.", 0.0, 3.5))
+    code, out, raw, err = skill("captions", "--transcript", str(f), "--rules", "en", "--lines", "1", "--fps", "30", "--out", str(tmp_path / "c.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    assert all(len(lines) == 1 for a, b, lines in parse_srt(tmp_path / "c.srt"))
+
+
+def test_help_gives_both_profiles_with_their_source():
+    code, _, raw, err = skill("captions", "--help")
+    assert code == 0
+    for word in ("--rules", "--transcript", "Netflix", "42", "20 characters", "before", "violations"):
+        assert word in raw, word
+    assert "Use it instead of transcript.createCaptions" not in raw
+
+
+def test_korean_rules_keep_a_break_after_a_standalone_english_conjunction():
+    """Only the English rules move the break before the conjunction, so a Korean caption quoting English lays out as it did. After `and`: 13 | 13.5 units, a clause break (0.5) and nearly even (0.025), cost 0.525. After `하고`: 11 | 15.5, also a clause break, cost 0.725."""
+    assert captions.layout(words(even("오늘 편집 이야기를 하고 and 다음에 자막을 봅니다 정말로", 0.0, 4.0)), KO, FPS)[0].lines == ["오늘 편집 이야기를 하고 and", "다음에 자막을 봅니다 정말로"]
+
+
+def test_korean_rules_stop_reading_a_word_merely_ending_in_a_conjunction_as_a_clause_end():
+    """Whole-word match under both profiles: `understand` is no break of its own in Korean text either."""
+    lines = captions.layout(words(even("여러분 모두 understand 이야기를 오늘 자막으로 함께 봅니다", 0.0, 4.0)), KO, FPS)[0].lines
+    assert not lines[0].endswith("understand")
+
+
+def test_korean_rules_do_not_read_a_capitalised_conjunction_as_a_clause_end():
+    """The Korean rules matched these in lower case only. After `And`: 13 | 13.5 units with no clause break (2.025); after `하고`: 11 | 15.5, a clause break, cost 0.725."""
+    assert captions.layout(words(even("오늘 편집 이야기를 하고 And 다음에 자막을 봅니다 정말로", 0.0, 4.0)), KO, FPS)[0].lines == ["오늘 편집 이야기를 하고", "And 다음에 자막을 봅니다 정말로"]

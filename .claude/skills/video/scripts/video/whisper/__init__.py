@@ -8,41 +8,32 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from video.errors import InputError, ToolError
+from video.recognition import RawWord, Recognition, Segment
 
-__all__ = ["DEFAULT_MODEL", "RawWord", "Segment", "Recognition", "recognise", "read"]
+__all__ = ["DEFAULT_MODEL", "recognise", "read", "recognizes", "model_cached", "uvx_installed"]
 
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 # mlx wheels lag new Pythons; this one is known to install.
 _PYTHON = "3.12"
 
 
-@dataclass
-class RawWord:
-    text: str
-    start: float
-    end: float
-    prob: float
+def model_cached(model: str = DEFAULT_MODEL, env=os.environ) -> bool:
+    """Whether a run would start without a download: a snapshot of the model with files in it, under Hugging Face's cache."""
+    home = Path(env.get("HF_HOME") or Path.home() / ".cache/huggingface")
+    snapshots = home / "hub" / ("models--" + model.replace("/", "--")) / "snapshots"
+    return snapshots.is_dir() and any(any(s.iterdir()) for s in snapshots.iterdir() if s.is_dir())
 
 
-@dataclass
-class Segment:
-    start: float
-    end: float
-    text: str
-    no_speech_prob: float
-    avg_logprob: float
-    compression_ratio: float
-    words: list[RawWord] = field(default_factory=list)
+def uvx_installed() -> bool:
+    return shutil.which("uvx") is not None
 
 
-@dataclass
-class Recognition:
-    language: str
-    segments: list[Segment]
+def recognizes(d) -> bool:
+    """Whether a saved JSON document is mlx-whisper's: its words sit inside `segments`."""
+    return isinstance(d, dict) and isinstance(d.get("segments"), list)
 
 
 def read(path: Path) -> Recognition:
@@ -72,7 +63,8 @@ def recognise(media: Path, out_dir: Path, language: str | None, model: str) -> P
            "--output-format", "json", "--output-dir", str(out_dir), "--condition-on-previous-text", "False", "--verbose", "False"]
     if language:
         cmd += ["--language", language]
-    r = subprocess.run(cmd, stdout=sys.stderr, stderr=subprocess.PIPE, text=True, env=dict(os.environ))
+    env = {k: v for k, v in os.environ.items() if k != "OPENROUTER_API_KEY"}  # third-party code with no use for it
+    r = subprocess.run(cmd, stdout=sys.stderr, stderr=subprocess.PIPE, text=True, env=env)
     produced = out_dir / (Path(media).stem + ".json")
     if r.returncode != 0 or not produced.exists():
         raise ToolError(f"mlx-whisper failed on {media}", r.stderr, cmd)
