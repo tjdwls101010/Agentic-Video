@@ -224,6 +224,25 @@ def test_text_with_no_words_at_all_is_refused():
         openrouter.read(reply([], text="some text the provider heard"))
 
 
+def test_a_recorded_broken_reply_is_refused():
+    """Nemotron on 400 s of `say`: its last word is at 561 s, and its word list is short of its own text."""
+    with pytest.raises(ToolError, match="--chunk"):
+        openrouter.read(FIXTURES / "say_en_long.nemotron.json")
+
+
+def test_a_recorded_broken_reply_from_a_file_exits_one_and_writes_nothing(tmp_path, audio):
+    code, res, raw, err = run(tmp_path, audio, "--from-json", str(FIXTURES / "say_en_long.nemotron.json"))
+    assert code == 1 and "--chunk" in res["error"]
+    assert not (tmp_path / "t.jsonl").exists()
+
+
+def test_a_recorded_two_voice_reply_keeps_its_speakers():
+    """Two `say` voices taking turns; Scribe's labels follow the voices."""
+    rec = openrouter.read(FIXTURES / "say_en_two_voices.scribe.json")
+    assert [(s.words[0].speaker, s.text) for s in rec.segments][:3] == [(0, "Good morning."), (0, "What did you think of the first draft of the film?"), (1, "I thought the opening was much too slow, and the music was far too loud.")]
+    assert {w.speaker for s in rec.segments for w in s.words} == {0, 1}
+
+
 def test_a_refused_reply_writes_no_transcript(tmp_path, audio):
     code, res, raw, err = from_json(tmp_path, audio, words_and_text(66, 1030))
     assert code == 1
@@ -602,20 +621,37 @@ def test_output_fields_come_cheap_signal_first(tmp_path, audio):
 
 
 @needs_filmcraft
-def test_speakers_and_missing_confidence_round_trip_through_filmcraft(tmp_path):
-    """Written by hand: two `say` voices are not recorded here. FilmCraft keeps speakers through transcript.set to transcript.inspect and breaks paragraphs at them."""
+def test_speakers_round_trip_through_filmcraft(tmp_path):
+    """The recorded two-voice reply through transcript.set to transcript.inspect: words, speakers and the paragraph break at each change of voice."""
     movie = tmp_path / "talk.mp4"
-    ffmpeg("-f", "lavfi", "-i", "color=c=gray:s=640x360:r=30:d=4", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=4", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(movie))
+    ffmpeg("-f", "lavfi", "-i", "color=c=gray:s=640x360:r=30:d=16", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=16", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(movie))
     p = tmp_path / "p.fcproj"
     item = json.loads(fc("--save-as", str(p), "import", str(movie), cwd=tmp_path).stdout)["items"][0]
     assert all(l["ok"] for l in fc_run([{"id": "file.newSequenceFromClip", "params": {"items": [item]}}], p, cwd=tmp_path))
-    raw = reply([("Hello", 1.0, 1.2, {"speaker": 0}), ("there.", 1.3, 1.5, {"speaker": 0}), ("Hi.", 1.6, 1.9, {"speaker": 1})], duration=4.0)
-    code, res, out, err = from_json(tmp_path, movie, raw, "--item", str(item))
+    code, res, out, err = run(tmp_path, movie, "--from-json", str(FIXTURES / "say_en_two_voices.scribe.json"), "--item", str(item))
     assert code == 0, out + err
+    assert res["speakers"] == 2
     fc("run", str(tmp_path / "t.jsonl"), project=p, save=True, cwd=tmp_path)
     got = fc_json("exec", "transcript.inspect", project=p, cwd=tmp_path)
-    assert [w["text"] for w in got["words"]] == ["Hello", "there.", "Hi."]
-    assert len({w.get("speaker") for w in got["words"]}) == 2
+    want = read_line(tmp_path / "t.jsonl")["params"]["transcript"]
+    assert [w["text"] for w in got["words"]] == [w["text"] for w in want["words"]]
+    assert [w["speaker"] for w in got["words"]] == [f"Speaker {w['speaker']}" for w in want["words"]]
+    assert got["speakers"] == ["Speaker 0", "Speaker 1"]
+    assert [q["speaker"] for q in got["paragraphs"]] == ["Speaker 0", "Speaker 1", "Speaker 0", "Speaker 1"]
+
+
+@needs_filmcraft
+def test_a_reply_without_confidence_applies_in_filmcraft(tmp_path):
+    """FilmCraft refuses `"confidence": null`, so the key is left out, and the line goes through."""
+    movie = tmp_path / "talk.mp4"
+    ffmpeg("-f", "lavfi", "-i", "color=c=gray:s=640x360:r=30:d=11", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=11", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(movie))
+    p = tmp_path / "p.fcproj"
+    item = json.loads(fc("--save-as", str(p), "import", str(movie), cwd=tmp_path).stdout)["items"][0]
+    assert all(l["ok"] for l in fc_run([{"id": "file.newSequenceFromClip", "params": {"items": [item]}}], p, cwd=tmp_path))
+    code, res, out, err = run(tmp_path, movie, "--from-json", str(FIXTURES / "say_ko.nemotron.json"), "--item", str(item))
+    assert code == 0, out + err
+    fc("run", str(tmp_path / "t.jsonl"), project=p, save=True, cwd=tmp_path)
+    assert len(fc_json("exec", "transcript.inspect", project=p, cwd=tmp_path)["words"]) == res["words"]
 
 
 # -- splitting --------------------------------------------------------------------------------------------------------------------------
