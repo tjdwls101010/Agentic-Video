@@ -538,3 +538,12 @@ def test_33_transcript_set_refuses_null_item_and_null_confidence(proj, params, m
     d, p = proj
     [row] = fc_run([{"id": "transcript.set", "params": params}], p, cwd=d, check=False)
     assert row["ok"] is False and message in row["error"]
+
+
+def test_34_a_filler_list_removes_every_match_whatever_follows(proj):
+    """SKILL.md › Speech as material: given 그 and 저, removeFillers also takes the demonstratives in 그 사람은 and 저 사람도, reports success, and leaves a word that only starts with one (그러니까)."""
+    d, p = proj
+    words = [{"text": t, "start": (10 + i * 5) * TICKS // 10, "end": (14 + i * 5) * TICKS // 10} for i, t in enumerate(["음", "그", "사람은", "저", "사람도", "그러니까"])]
+    rows = fc_run([{"id": "transcript.set", "params": {"item": 1, "transcript": {"language": "ko", "source": "t", "speakers": [], "words": words}}}, {"id": "transcript.removeFillers", "params": {"fillers": ["음", "그", "저"]}}], p, cwd=d)
+    assert all(r["ok"] for r in rows) and rows[1]["result"]["removed"] == 3
+    assert [w["text"] for w in fc_json("exec", "transcript.inspect", project=p, cwd=d)["words"]] == ["사람은", "사람도", "그러니까"]
