@@ -189,7 +189,7 @@ def test_the_jsonl_round_trips_through_filmcraft_word_for_word(tmp_path):
 @pytest.mark.skipif(os.environ.get("FILMCRAFT_TEST_WHISPER") != "1", reason="set FILMCRAFT_TEST_WHISPER=1 to run the real mlx-whisper model (about 1.6 GB, cached under ~/.cache/huggingface)")
 def test_real_whisper_path(tmp_path):
     audio, truth = say_reference(tmp_path)
-    code, res, raw, err = skill("transcribe", str(audio), "--item", "1", "--language", "ko", "--out", str(tmp_path / "t.jsonl"), cwd=tmp_path)
+    code, res, raw, err = skill("transcribe", str(audio), "--engine", "local", "--item", "1", "--language", "ko", "--out", str(tmp_path / "t.jsonl"), cwd=tmp_path)
     assert code == 0, raw + err
     assert res["words"] >= 10 and res["language"] == "ko"
     text = " ".join(w["text"] for w in read_jsonl(tmp_path / "t.jsonl")["params"]["transcript"]["words"])
@@ -197,8 +197,8 @@ def test_real_whisper_path(tmp_path):
 
 
 def test_missing_media_is_a_usage_error(tmp_path):
-    code, res, raw, err = skill("transcribe", str(tmp_path / "none.wav"), "--item", "1", "--out", str(tmp_path / "t.jsonl"), cwd=tmp_path)
-    assert code == 2
+    code, res, raw, err = skill("transcribe", str(tmp_path / "none.wav"), "--engine", "local", "--item", "1", "--out", str(tmp_path / "t.jsonl"), cwd=tmp_path)
+    assert code == 2 and "none.wav" in res["error"]
 
 
 def test_help_explains_snapping_review_and_next_step():

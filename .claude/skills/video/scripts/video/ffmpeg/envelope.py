@@ -13,6 +13,7 @@ from .probe import tool
 
 RATE = 16000
 FLOOR_DB = -100.0
+MEASURE_HOP = 0.01
 
 
 def envelope(path: Path, hop: float = 0.01) -> list[float]:
@@ -54,3 +55,8 @@ def speech_spans(env_db: list[float], hop: float, min_gap: float = 0.12, min_spa
             else:
                 runs.append([i, i])
     return [(a * hop, (b + 1) * hop) for a, b in runs if (b + 1 - a) * hop >= min_span]
+
+
+def measured_speech(path: Path) -> list[tuple[float, float]]:
+    """Where a media file has speech, by the one measurement `transcribe` and `waveform` both report."""
+    return speech_spans(envelope(path, MEASURE_HOP), MEASURE_HOP)

@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = ["pillow>=10", "playwright>=1.50"]
 # ///
-"""Tools FilmCraft lacks for editing from the shell: speech to word-timed transcripts, Korean caption layout, a compact timeline readout, frame contact sheets, delivery QC, and graphics rendered from HTML pages. This file is the whole command surface (parser, help, dispatch, exit codes); what each command does lives in the `video` package."""
+"""Tools FilmCraft lacks for editing from the shell: speech to word-timed transcripts, caption layout, a compact timeline readout, frame contact sheets, delivery QC, and graphics rendered from HTML pages."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import re
 import sys
 from pathlib import Path
 
-from video import captions, frames, graphic, qc, timeline, transcribe
+from video import captions, frames, graphic, openrouter, qc, timeline, transcribe
 from video.errors import InputError, ToolError
 from video.filmcraft import Source
 from video.timecode import Rate
@@ -22,7 +22,7 @@ EXIT_OK, EXIT_TOOL, EXIT_USAGE, EXIT_QC_FAIL = 0, 1, 2, 3
 
 ROOT_EPILOG = """\
 Every command prints one JSON document on stdout; progress and diagnostics go to stderr.
-Exit codes: 0 success; 1 an external tool (filmcraft-cli, ffmpeg, mlx-whisper, Chrome) failed or is missing, and the JSON carries `error` and `stderr_tail`; 2 the command line must change, and the JSON carries `error` and the `help` to read; 3 only from `qc`, when a required check failed.
+Exit codes: 0 success; 1 an external tool (filmcraft-cli, ffmpeg, mlx-whisper, OpenRouter, Chrome) failed or is missing, and the JSON carries `error` and `stderr_tail`; 2 the command line must change, and the JSON carries `error` and the `help` to read; 3 only from `qc`, when a required check failed.
 Commands that read a project take exactly one of --project P.fcproj (headless, the file on disk) or --bridge 127.0.0.1:PORT (the running app, including unsaved edits)."""
 
 TIMELINE_DESC = """\
@@ -53,13 +53,19 @@ Exits: 0 written; 2 the command line must change (--cuts without --project, more
 
 
 TRANSCRIBE_DESC = f"""\
-Speech to a word-timed FilmCraft transcript, because this FilmCraft build cannot transcribe (transcript.generate and transcript.downloadModel are disabled).
-Runs mlx-whisper (default {transcribe.DEFAULT_MODEL}, about 1.6 GB, downloaded to ~/.cache/huggingface on first use; ask before that first download) with word timestamps, measures where speech is from the audio level, and moves Whisper's word edges onto it: an edge Whisper put in silence moves inward to the speech edge, however far, staying inside the word; the first word of a stretch of speech may start earlier, and the last may end later, by at most --max-shift. A word with no speech under it keeps Whisper's edges. Every word is then kept in order and at least a frame long, which can nudge a very short one. Under continuous music the level never drops, so only the outer edges of that passage can move.
-Writes --out as one `transcript.set` line (media-time ticks, Whisper's word probability as confidence), plus <out>.txt (one line per Whisper segment: [w<first>-w<last>] start-end text, the word indices those commands take) and <out>.whisper.json (the raw recognition, reusable with --from-json).
-Before applying: correct misrecognised words (names, terms) by editing the text fields of --out in place, keeping start/end. Then apply with the `next` command; the transcript attaches to the media item, so every clip of it in every sequence gets it.
-Prints: {{"item", "language", "words", "seconds", "speech_seconds", "snapped" (words with an edge moved), "unmatched" (words over no speech), "review": [{{"i", "text", "start_s", "reason"}}] (at most {transcribe.REVIEW_SHOWN}; the rest in review_file), "review_total", "out", "text", "whisper_json", "next"}}.
-Review reasons: low_prob (Whisper's word probability below {transcribe.LOW_PROB}); unmatched (no speech measured under the word); repeat (the same line in three or more consecutive segments, Whisper's usual hallucination over music or silence); no_speech (a segment Whisper's own no-speech test rejects). Listen-free check: a repeat or no_speech line over background music is almost always invented; delete those words from --out before applying.
-Exits: 0 written; 2 the media is missing or has no audio, or --from-json is not mlx-whisper JSON; 1 ffmpeg, uvx or mlx-whisper failed.
+Speech to a word-timed FilmCraft transcript, because this FilmCraft build cannot transcribe (transcript.generate and transcript.downloadModel are disabled). Choose where the words come from; there is no default, so audio never leaves this machine by accident.
+--engine local: Whisper on this machine ({transcribe.WHISPER_MODEL}). Nothing leaves it and it is free, but it is the slower engine and downloads a large model on first use (`doctor` says whether it is cached). Its word starts run early, often half a second in the middle of speech, and snapping only corrects edges next to real silence: a caption can rise before the voice, and a cut on a word boundary can clip the word.
+--engine openrouter: sends the audio to the provider (a zero-retention route unless --no-zdr) and costs money (cost_usd). Word edges sit on the voice, --diarize labels speakers, fillers are kept, and the low_prob list is short and holds the misheard names. The key is read from OPENROUTER_API_KEY when that is set, otherwise from {openrouter.KEY_FILE}.
+That comparison was measured on one English documentary, not on Korean speech.
+--model: for openrouter, any model at https://openrouter.ai/api/v1/models?output_modalities=transcription (default {transcribe.OPENROUTER_MODEL}). Word timing belongs to the route, not the model's reputation: models that rank well on recognition have returned truncated word lists and drifting times here. A truncated reply is refused and says what to try; passing that does not prove the times.
+--from-json: an earlier run's raw reply instead of a new recognition, with no cost. Which engine it came from shows in its shape.
+Word edges: --snap auto moves them onto speech measured from the audio level for Whisper and leaves them for OpenRouter, whose edges are already on the voice and whose word ends would be cut short. With snapping, an edge put in silence moves inward to the speech edge, however far, staying inside the word; the first word of a stretch of speech may start earlier, and the last may end later, by at most --max-shift. Under continuous music the level never drops, so only the outer edges of that passage can move. Every word is then kept in order and at least a frame long, which can nudge a very short one.
+Long files: a file too big for one request is cut at silences and sent in pieces at once, as is any file longer than --chunk; the replies are merged. A failed run is run again from the start.
+Writes --out as one `transcript.set` line (media-time ticks, confidence and speaker when the engine gives them), <out>.txt (one line per sentence or pause: [w<first>-w<last>] start-end text, the word indices those commands take, with speakers and [sound] lines for sounds the engine named), and the raw reply as <out>.whisper.json or <out>.openrouter.json, reusable with --from-json. An --out or raw reply that already exists is left alone: the command stops, so corrected words and a paid reply cannot be replaced by accident.
+Before applying: correct misrecognised words (names, terms) by editing the text fields of --out in place, keeping start/end, and delete repeat or no_speech lines over music. Then apply with the `next` command; the transcript attaches to the media item, so every clip of it in every sequence gets it. Without --item the line reads as item null, which FilmCraft refuses and `captions --transcript` and `waveform --words` accept: before applying, fill in params.item in --out by hand rather than transcribing again, which would lose the corrections.
+Prints: {{"engine", "model" (null when --from-json does not say), "item", "language", "words", "seconds", "speech_seconds", "cost_usd" (what OpenRouter charged this run, null if it did not say; 0 for local and --from-json), "speakers", "audio_events", "snapped" (words with an edge moved), "unmatched" (words over no speech), "has_confidence", "review": [{{"i", "text", "start_s", "reason"}}] (at most {transcribe.REVIEW_SHOWN}; the rest in review_file), "review_total", "review_file", "out", "text", "raw", "next", "notes"}}.
+Review reasons: low_prob (the engine's word probability below {transcribe.LOW_PROB}, when it gives one); unmatched (no speech measured under the word); repeat (the same line in three or more consecutive lines, the usual hallucination over music or silence); no_speech (a segment Whisper's own no-speech test rejects; Whisper only); compressed (the first word of a stretch with more than {transcribe.COMPRESSED_RATE:.0f} words a second over {transcribe.COMPRESSED_WINDOW:.0f} s, which is faster than speech: the times there are wrong; passing does not prove them). Listen-free check: a repeat or no_speech line over background music is almost always invented.
+Exits: 0 written; 2 the media is missing or has no audio, a --from-json that is neither engine's, an --out or raw reply that already exists, an argument the provider refused (its message says which), or the command line must change; 1 ffmpeg, uvx or mlx-whisper failed, no API key, no credit, retries ran out, or a reply whose times are broken, in which case no transcript is written.
 
 """
 
@@ -93,7 +99,7 @@ Replacing a render
 --out is written beside itself and verified first; an earlier file at --out stays byte for byte until then, and on any failure. FilmCraft keeps the length and sound it read when a file was imported, so a clip placed from the earlier file plays a re-render of the same length, sound, size and rate as is; `replaced` and `next` say when it must be cleared and placed again.
 
 Prints: {"out", "kind": "video"|"still", "size": "WxH", "fps" (.mov), "frames", "seconds" (.mov), "coverage": [{"t", "painted", "opaque"}] (first, middle and last frame; painted = share of the frame with any paint, opaque = with alpha >= 250, which is what hides the picture), "audio": {"peak_dbfs", "lufs"} or null (no sound; levels are null for silence, and a peak above 0 means the page's sound clipped), "fonts": [{"family", "drawn_by": [{"face", "glyphs"}], "fallback", "text" (when fallback)}] (visible DOM text, sampled at the start, each whole second and the end; text drawn on a canvas, generated by CSS content or inside a shadow root is not seen, so check those in the frames; fallback = the family is missing or lacks some glyphs and another face drew them; a generic family such as sans-serif is never flagged), "blocked": [urls], "replaced": null (no earlier file) or {"length_changed", "audio_changed", "size_changed", "fps_changed"}, "took_s", "next": {"steps": [filmcraft-cli commands that import and place the render, with <placeholders>], "placeholders", "if_placed" (when replacing), "note"}}.
-Placing: the steps put the render on a new video track and its sound on a new audio track, leaving A1's speech alone (timeline.place without audioTrack overwrites A1; graphics.newFromFile drops the sound).
+Placing: the steps put the render on a new video track and its sound on a new audio track, leaving A1's speech alone.
 
 Exits: 0 written; 2 the command line must change (a .mov without a length, a length that is not a positive finite number, --out not .mov or .png, --out the page itself, no page, --fps written as a decimal, --size without --fps, --sequence with --size, an --out folder that cannot be made); 1 the render failed and `error` starts with the stage: launch (Chrome or Playwright missing; the error says how to install, which is the user's to approve), load, files (a local file the page asked for is missing), fonts, images (one cannot be decoded), page (an uncaught error or unhandled rejection), seek (seek or the settle after it failed or timed out, or a CSS transition started), audio, capture, encode (ffmpeg), verify (the written movie differs from what was asked for), write (the file could not be put in place); or filmcraft-cli failed reading the sequence.
 """
@@ -207,15 +213,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(run=lambda a: captions.make(a.out.resolve(), project=a.project.resolve() if a.project else None, bridge=a.bridge, cues_file=a.cues.resolve() if a.cues else None,
                                                fps=a.fps, frame=a.frame, font=a.font, size=a.size, margin=a.margin, anchor=a.anchor, lines=a.lines, cps=a.cps, min_s=a.min_s, max_s=a.max_s))
 
-    p = sub.add_parser("transcribe", help="mlx-whisper words snapped to measured speech, as a transcript.set line", description=TRANSCRIBE_DESC, formatter_class=fmt)
+    p = sub.add_parser("transcribe", help="speech to a word-timed transcript.set line, from Whisper here or a model through OpenRouter", description=TRANSCRIBE_DESC, formatter_class=fmt)
     p.add_argument("media", type=Path, metavar="MEDIA", help="the media file the project item points at")
-    p.add_argument("--item", type=int, required=True, metavar="ID", help="its project item id (inspect project lists them)")
-    p.add_argument("--out", type=Path, required=True, metavar="X.jsonl", help="where to write the transcript.set line (siblings .txt and .whisper.json go next to it)")
-    p.add_argument("--language", metavar="CODE", help="spoken language, e.g. ko or en (default: Whisper detects it)")
-    p.add_argument("--model", default=transcribe.DEFAULT_MODEL, metavar="REPO", help=f"mlx-whisper model (default {transcribe.DEFAULT_MODEL})")
-    p.add_argument("--max-shift", type=float, default=0.5, metavar="SEC", help="how far an outer edge of a stretch of speech may move outward (default 0.5)")
-    p.add_argument("--from-json", type=Path, metavar="W.json", help="reuse an mlx-whisper JSON from an earlier run instead of running the model")
-    p.set_defaults(run=lambda a: transcribe.transcribe(a.media.resolve(), a.item, a.out.resolve(), a.language, a.model, a.max_shift, a.from_json.resolve() if a.from_json else None))
+    p.add_argument("--out", type=Path, required=True, metavar="X.jsonl", help="where to write the transcript.set line (siblings .txt and the raw reply go next to it); must not exist yet")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--engine", choices=["local", "openrouter"], help="where the words come from; see above")
+    src.add_argument("--from-json", type=Path, metavar="RAW.json", help="reuse a raw reply from an earlier run instead of recognising again")
+    p.add_argument("--item", type=int, metavar="ID", help="its project item id (inspect project lists them). Without it, fill in params.item before applying")
+    p.add_argument("--language", metavar="CODE", help="spoken language, e.g. ko or en (default: the engine detects it)")
+    p.add_argument("--model", metavar="NAME", help=f"local: an mlx-whisper model (default {transcribe.WHISPER_MODEL}); openrouter: a transcription model (default {transcribe.OPENROUTER_MODEL})")
+    p.add_argument("--diarize", action="store_true", help="openrouter: label speakers, where the model supports it (a model that does not refuses the request). Numbers are the engine's clustering")
+    p.add_argument("--no-zdr", dest="zdr", action="store_false", help="openrouter: allow routes that keep data (by default only zero-retention routes are used)")
+    p.add_argument("--chunk", type=positive, metavar="S", help="openrouter: cut the audio at silences into pieces of at most S seconds")
+    p.add_argument("--snap", dest="snap_mode", choices=["auto", "on", "off"], default="auto", help="move word edges onto measured speech: auto does for local and not for openrouter (default auto)")
+    p.add_argument("--max-shift", type=float, default=0.5, metavar="SEC", help="how far an outer edge of a stretch of speech may move outward when snapping (default 0.5)")
+    p.set_defaults(run=run_transcribe)
 
     p = sub.add_parser("graphic", help="a local HTML page rendered to a transparent MOV (with its sound) or PNG still for FilmCraft", description=GRAPHIC_DESC, formatter_class=fmt)
     p.add_argument("page", type=Path, metavar="PAGE.html", help="the page to render, a local HTML file")
@@ -230,6 +242,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--frame-at", type=non_negative, default=0.0, metavar="T", help=".png: the page time to capture, in seconds (default 0); page time, not a timeline position")
     p.set_defaults(run=run_graphic)
     return root
+
+
+def run_transcribe(a) -> dict:
+    if a.engine != "openrouter":
+        sends = {"--diarize": a.diarize, "--no-zdr": not a.zdr, "--chunk": a.chunk is not None}
+        used = [flag for flag, on in sends.items() if on]
+        if used:
+            raise InputError(f"{', '.join(used)} only apply to --engine openrouter, because nothing else sends a request")
+    return transcribe.transcribe(a.media.resolve(), a.out.resolve(), engine=a.engine, from_json=a.from_json.resolve() if a.from_json else None, item=a.item, language=a.language, model=a.model,
+                                 diarize=a.diarize, zdr=a.zdr, snap_mode=a.snap_mode, max_shift=a.max_shift, chunk=a.chunk)
 
 
 def run_graphic(a) -> dict:

@@ -13,11 +13,16 @@ from pathlib import Path
 from video.errors import InputError, ToolError
 from video.recognition import RawWord, Recognition, Segment
 
-__all__ = ["DEFAULT_MODEL", "recognise", "read"]
+__all__ = ["DEFAULT_MODEL", "recognise", "read", "recognizes"]
 
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 # mlx wheels lag new Pythons; this one is known to install.
 _PYTHON = "3.12"
+
+
+def recognizes(d) -> bool:
+    """Whether a saved JSON document is mlx-whisper's: its words sit inside `segments`."""
+    return isinstance(d, dict) and isinstance(d.get("segments"), list)
 
 
 def read(path: Path) -> Recognition:
