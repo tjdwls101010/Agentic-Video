@@ -1,13 +1,20 @@
-"""SubRip, the file the model writes translated cues in and FilmCraft's captions.import reads."""
+"""SubRip, the file the model writes translated cues in and FilmCraft's captions.import reads, and the cue it holds."""
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from video.errors import InputError
 
-from .layout import Cue
+
+@dataclass
+class Cue:
+    start: float
+    end: float
+    lines: list[str]
+
 
 _TIME = re.compile(r"(\d+):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d+):(\d{2}):(\d{2})[,.](\d{1,3})")
 

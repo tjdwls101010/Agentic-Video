@@ -17,8 +17,8 @@ PKG = "video"
 # The kind of every top-level name under video/. A name missing here fails, so a new unit is placed on purpose.
 KINDS = {
     "transcribe": "feature", "captions": "feature", "timeline": "feature", "frames": "feature", "qc": "feature", "graphic": "feature",
-    "filmcraft": "system", "whisper": "system", "ffmpeg": "system", "mp4": "system", "chrome": "system",
-    "timecode": "shared", "errors": "shared", "__init__": "shared",
+    "filmcraft": "system", "whisper": "system", "ffmpeg": "system", "mp4": "system", "chrome": "system", "subrip": "system",
+    "timecode": "shared", "errors": "shared", "recognition": "shared", "__init__": "shared",
 }
 
 # What each kind may import besides its own unit: features rely on systems and shared helpers, systems on shared helpers only, so a feature can change or go without touching the rest.

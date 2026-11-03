@@ -8,41 +8,16 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from video.errors import InputError, ToolError
+from video.recognition import RawWord, Recognition, Segment
 
-__all__ = ["DEFAULT_MODEL", "RawWord", "Segment", "Recognition", "recognise", "read"]
+__all__ = ["DEFAULT_MODEL", "recognise", "read"]
 
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 # mlx wheels lag new Pythons; this one is known to install.
 _PYTHON = "3.12"
-
-
-@dataclass
-class RawWord:
-    text: str
-    start: float
-    end: float
-    prob: float
-
-
-@dataclass
-class Segment:
-    start: float
-    end: float
-    text: str
-    no_speech_prob: float
-    avg_logprob: float
-    compression_ratio: float
-    words: list[RawWord] = field(default_factory=list)
-
-
-@dataclass
-class Recognition:
-    language: str
-    segments: list[Segment]
 
 
 def read(path: Path) -> Recognition:

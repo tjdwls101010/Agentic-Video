@@ -6,13 +6,14 @@ import shlex
 from fractions import Fraction
 from pathlib import Path
 
+from video import subrip
 from video.errors import InputError
 from video.filmcraft import Source, read_words
+from video.subrip import Cue
 from video.timecode import Rate, seconds
 
-from . import srt
 from .fonts import measure_for
-from .layout import Cue, Word, layout, relayout, violations
+from .layout import Word, layout, relayout, violations
 from .rules import HELP, Rules, units
 
 __all__ = ["Word", "Cue", "Rules", "units", "layout", "relayout", "violations", "make", "HELP", "DEFAULT_FONT", "style_defaults"]
@@ -50,8 +51,8 @@ def make(out: Path, *, project: Path | None = None, bridge: str | None = None, c
     if m.source == "estimate":
         notes.append(f"no installed face of {style['font']!r} found; line widths estimated, so check a render (frames --project)")
     fr = Fraction(rate.num, rate.den)
-    result = layout(words, rules, fr, m.fits) if cues_file is None else relayout(srt.read(cues_file), rules, fr, m.fits)
-    srt.write(result, out)
+    result = layout(words, rules, fr, m.fits) if cues_file is None else relayout(subrip.read(cues_file), rules, fr, m.fits)
+    subrip.write(result, out)
     # in the app, the edit lands in the open project and saving it stays the user's call (an untitled project would open a save dialog)
     where = f"--project {shlex.quote(str(project))} --save" if project is not None else f"--bridge {shlex.quote(bridge)}" if bridge else "--project <P.fcproj> --save"
     style_args = " ".join(f"{k}={shlex.quote(str(v))}" for k, v in style.items())

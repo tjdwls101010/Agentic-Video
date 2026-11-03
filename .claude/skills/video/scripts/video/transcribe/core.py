@@ -1,4 +1,4 @@
-"""Where speech is, from a level envelope, and Whisper's word edges moved onto it. Pure: lists in, lists out."""
+"""Whisper's word edges moved onto measured speech. Pure: lists in, lists out."""
 
 from __future__ import annotations
 
@@ -12,27 +12,6 @@ class Word:
     end: float
     prob: float = 1.0
     segment: int = -1
-
-
-def speech_spans(env_db: list[float], hop: float, min_gap: float = 0.12, min_span: float = 0.08) -> list[tuple[float, float]]:
-    """Stretches louder than a threshold set 30 % of the way from the noise floor (10th percentile, at least -70 dBFS) to the speech level (95th), joined across dips shorter than `min_gap`. Under continuous music nothing drops below the threshold, so speech comes back as one long stretch and only its outer edges can snap."""
-    if not env_db:
-        return []
-    ordered = sorted(env_db)
-    # digital silence would put the floor at -100 dBFS and the threshold among resampler ringing; nothing below -70 is audible speech
-    floor = max(ordered[int(0.10 * (len(ordered) - 1))], -70.0)
-    peak = ordered[int(0.95 * (len(ordered) - 1))]
-    if peak - floor < 6:
-        return []
-    threshold = floor + 0.3 * (peak - floor)
-    runs: list[list[int]] = []
-    for i, v in enumerate(env_db):
-        if v > threshold:
-            if runs and i - runs[-1][1] - 1 < round(min_gap / hop):
-                runs[-1][1] = i
-            else:
-                runs.append([i, i])
-    return [(a * hop, (b + 1) * hop) for a, b in runs if (b + 1 - a) * hop >= min_span]
 
 
 def _normalized(words: list[Word]) -> list[Word]:

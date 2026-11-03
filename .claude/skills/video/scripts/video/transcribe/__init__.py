@@ -12,10 +12,10 @@ from video import ffmpeg, whisper
 from video.errors import InputError
 from video.timecode import ticks
 
-from .core import Word, snap, speech_spans
+from .core import Word, snap
 from .review import LOW_PROB, flags
 
-__all__ = ["Word", "snap", "speech_spans", "transcribe", "DEFAULT_MODEL", "LOW_PROB", "REVIEW_SHOWN"]
+__all__ = ["Word", "snap", "transcribe", "DEFAULT_MODEL", "LOW_PROB", "REVIEW_SHOWN"]
 
 DEFAULT_MODEL = whisper.DEFAULT_MODEL
 HOP = 0.01
@@ -39,7 +39,7 @@ def transcribe(media: Path, item: int, out: Path, language: str | None = None, m
     rec = whisper.read(source)
     words = [Word(w.text, w.start, w.end, w.prob, k) for k, s in enumerate(rec.segments) for w in s.words]
     fps = info.video[0].fps if info.video and info.video[0].fps else 30
-    spans = speech_spans(ffmpeg.envelope(media, HOP), HOP)
+    spans = ffmpeg.speech_spans(ffmpeg.envelope(media, HOP), HOP)
     snapped, report = snap(words, spans, max_shift=max_shift, min_dur=1 / float(fps))
     lang = rec.language or language or ""
     line = {"id": "transcript.set", "params": {"item": item, "transcript": {

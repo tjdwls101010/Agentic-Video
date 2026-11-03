@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Callable
 
+from video.subrip import Cue
+
 from .rules import Rules, chars, clean_line, is_clause_end, is_sentence_end, units
 
 
@@ -18,13 +20,6 @@ class Word:
     speaker: str | None = None
     clip: int | None = None
     group: int = 0
-
-
-@dataclass
-class Cue:
-    start: float
-    end: float
-    lines: list[str]
 
 
 Fits = Callable[[str], bool]
