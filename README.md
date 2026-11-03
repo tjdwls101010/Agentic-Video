@@ -148,7 +148,6 @@ tests/
 ├── filmcraft_facts/         스킬이 기대는 FilmCraft 동작 24개
 └── support/                 테스트 공용 도우미
 .mcp.json                    실행 중인 앱용 브리지 MCP
-.tmp/filmcraft/              FilmCraft 0.7.2 소스(동작 확인용 참고)
 ```
 
 기능 유닛은 시스템 유닛과 공용 모듈만 가져다 쓰고, 유닛 밖에서는 `__init__.py`의 `__all__`만 씁니다. 이 규칙은 `tests/video_skill/test_structure.py`가 지킵니다.
@@ -173,4 +172,3 @@ FILMCRAFT_TEST_WHISPER=1 uv run --with pytest --with pillow pytest -k real_whisp
 - 이 FilmCraft 빌드는 자체 음성 인식이 없고, 내레이션(TTS)은 영어만 됩니다.
 - 세이프존 수치는 플랫폼의 광고 가이드 기준입니다. 일반 게시물 UI와는 조금 다를 수 있습니다.
 - 그래픽의 색은 FilmCraft 안에서 왕복이 맞도록 BT.709로 태그합니다. Premiere 같은 다른 플레이어에서의 미세한 감마 차이는 확인하지 않았습니다.
-- `.tmp/etc/`의 테스트 영상은 개인 테스트용이라 레포에 넣지 않습니다.
