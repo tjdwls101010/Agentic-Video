@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = ["pillow>=10", "playwright>=1.50"]
 # ///
-"""Tools FilmCraft lacks for editing from the shell: speech to word-timed transcripts, caption layout, a compact timeline readout, frame contact sheets, delivery QC, and graphics rendered from HTML pages."""
+"""Tools FilmCraft lacks for editing from the shell: speech to word-timed transcripts, caption layout, pictures of sound to check them against, a compact timeline readout, frame contact sheets, delivery QC, and graphics rendered from HTML pages."""
 
 from __future__ import annotations
 
@@ -71,12 +71,12 @@ Exits: 0 written; 2 the media is missing or has no audio, a --from-json that is 
 
 
 CAPTIONS_DESC = f"""\
-Korean captions laid out to the subtitle rules below and to the width FilmCraft will burn them at, written as SubRip for captions.import. Use it instead of transcript.createCaptions, whose defaults are English (42 characters, greedy fill, sentences split mid-line).
-Sources: --project or --bridge reads the active sequence's transcript, whose words are already in sequence time (trims, speed changes, ripple deletes and reused clips included); --cues reads cues written elsewhere, such as a translation you wrote as SubRip, and lays each one out again inside its own time, on whole frames (a source cue shorter than a frame still gets one, reported as short).
+Captions laid out to the subtitle rules below, Korean or English, and to the width FilmCraft will burn them at, written as SubRip for captions.import.
+Sources: --project or --bridge reads the active sequence's transcript, whose words are already in sequence time (trims, speed changes, ripple deletes and reused clips included); --transcript reads a transcribe line with no project, for captions on the source media as it is, in media time, with `next` giving only the file; --cues reads cues written elsewhere, such as a translation you wrote as SubRip, and lays each one out again inside its own time, on whole frames (a source cue shorter than a frame still gets one, reported as short).
 Width: FilmCraft draws captions in the track's font at SemiBold, at size x frame height / 1080 pixels (so size 54 is 96 px in a 1080x1920 frame), and wraps any line wider than 0.9 x frame width at its spaces. This command measures each line in that face (Pillow) and wraps earlier when needed, so a cue it writes stays within its lines. That holds only if the track gets the same style: captions.import makes a new track in the default style (Inter, which has no Hangul, at 54), so always follow it with the captions.setStyle in `next`. Defaults: font {captions.DEFAULT_FONT}; landscape size 54, margin 0.08; vertical size 40, margin 0.40 (two lines clear the bottom UI and the Reels corner of every platform in frames --help).
 Prints: {{"cues", "style": {{font, size, margin, anchor}}, "max_line_units" (what fits a line at this size), "width": {{source: font|estimate, face, px, max_line_px}}, "violations": [{{cue, kind: cps|short|long_line, value, text}}], "out", "notes", "next": [the import command, the setStyle command]}}.
 A cps violation cannot be fixed by timing when the next cue follows at once: shorten that cue's text (in --cues mode, rewrite the translation more tightly and run again). After importing, check that the import result's `warnings` is empty.
-Exits: 0 written (violations do not fail); 2 no transcript in the active sequence, an unreadable --cues file, or the command line must change; 1 filmcraft-cli failed.
+Exits: 0 written (violations do not fail); 2 no transcript in the active sequence, an unreadable or empty --cues or --transcript file, or the command line must change; 1 filmcraft-cli failed.
 
 """
 
@@ -203,24 +203,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(run=lambda a: frames.sheet(a.out.resolve(), project=a.project.resolve() if a.project else None, media=a.media.resolve() if a.media else None,
                                               at=a.at, every=a.every, cuts=a.cuts, overlay=a.overlay, cols=a.cols, width=a.width))
 
-    p = sub.add_parser("captions", help="Korean caption layout to the subtitle rules and the burn-in width, as SubRip", description=CAPTIONS_DESC + captions.HELP, formatter_class=fmt)
+    p = sub.add_parser("captions", help="caption layout to Korean or English subtitle rules and the burn-in width, as SubRip", description=CAPTIONS_DESC + captions.HELP, formatter_class=fmt)
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--project", type=Path, metavar="P.fcproj", help="read the active sequence's transcript headless")
     src.add_argument("--bridge", metavar="127.0.0.1:PORT", help="read it from the running app (unsaved edits included)")
+    src.add_argument("--transcript", type=Path, metavar="X.jsonl", help="read a transcribe line with no project (its item may be empty); times are media times")
     src.add_argument("--cues", type=Path, metavar="IN.srt", help="lay out these cues again (a translation, or captions from elsewhere)")
     p.add_argument("--out", type=Path, required=True, metavar="X.srt", help="where to write the SubRip file")
     p.add_argument("--font", metavar="FAMILY", help=f"caption font family, installed (fonts.list); default {captions.DEFAULT_FONT}")
     p.add_argument("--size", type=float, metavar="N", help="captions.setStyle size, relative to a 1080-line frame (default 54 landscape, 40 vertical)")
     p.add_argument("--margin", type=float, metavar="M", help="captions.setStyle margin, fraction of frame height from the anchored edge (default 0.08 landscape, 0.40 vertical)")
     p.add_argument("--anchor", choices=["bottom", "top"], default="bottom", help="captions.setStyle anchor (default bottom); top when burned-in text already occupies the bottom")
-    p.add_argument("--lines", type=int, choices=[1, 2], default=2, help="lines a cue may have (default 2)")
-    p.add_argument("--cps", type=positive, default=12.0, metavar="N", help="reading speed limit in characters a second (default 12)")
-    p.add_argument("--min", dest="min_s", type=positive, default=5 / 6, metavar="SEC", help="shortest cue (default 5/6 s)")
-    p.add_argument("--max", dest="max_s", type=positive, default=7.0, metavar="SEC", help="longest cue (default 7 s)")
-    p.add_argument("--fps", type=positive, metavar="F", help="--cues only: the sequence's frame rate, so cue times land on frames (default 30)")
-    p.add_argument("--frame", type=size_arg, metavar="WxH", help="--cues only: the sequence's frame size, for the width check (default 1920x1080)")
-    p.set_defaults(run=lambda a: captions.make(a.out.resolve(), project=a.project.resolve() if a.project else None, bridge=a.bridge, cues_file=a.cues.resolve() if a.cues else None,
-                                               fps=a.fps, frame=a.frame, font=a.font, size=a.size, margin=a.margin, anchor=a.anchor, lines=a.lines, cps=a.cps, min_s=a.min_s, max_s=a.max_s))
+    p.add_argument("--rules", choices=list(captions.RULE_PROFILES), default="ko", help="which subtitle rules to lay out to, below (default ko)")
+    p.add_argument("--lines", type=int, choices=[1, 2], help="lines a cue may have (default from --rules: 2)")
+    p.add_argument("--cps", type=positive, metavar="N", help="reading speed limit in characters a second (default from --rules: ko 12, en 20)")
+    p.add_argument("--min", dest="min_s", type=positive, metavar="SEC", help="shortest cue (default from --rules: 5/6 s)")
+    p.add_argument("--max", dest="max_s", type=positive, metavar="SEC", help="longest cue (default from --rules: 7 s)")
+    p.add_argument("--fps", type=positive, metavar="F", help="--cues and --transcript: the sequence's frame rate, so cue times land on frames (default 30)")
+    p.add_argument("--frame", type=size_arg, metavar="WxH", help="--cues and --transcript: the sequence's frame size, for the width check (default 1920x1080)")
+    p.set_defaults(run=lambda a: captions.make(a.out.resolve(), project=a.project.resolve() if a.project else None, bridge=a.bridge, cues_file=a.cues.resolve() if a.cues else None, transcript=a.transcript.resolve() if a.transcript else None,
+                                               fps=a.fps, frame=a.frame, font=a.font, size=a.size, margin=a.margin, anchor=a.anchor, profile=a.rules, lines=a.lines, cps=a.cps, min_s=a.min_s, max_s=a.max_s))
 
     p = sub.add_parser("transcribe", help="speech to a word-timed transcript.set line, from Whisper here or a model through OpenRouter", description=TRANSCRIBE_DESC, formatter_class=fmt)
     p.add_argument("media", type=Path, metavar="MEDIA", help="the media file the project item points at")

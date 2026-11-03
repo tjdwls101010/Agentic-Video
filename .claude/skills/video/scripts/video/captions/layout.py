@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import Callable
 
@@ -35,7 +35,7 @@ def _boundary_cost(ws: list[Word], j: int) -> float:
         return 0.0
     gap = nxt.start - w.end
     cost = 6.0
-    if is_clause_end(w.text):
+    if is_clause_end(w.text, nxt.text):
         cost = 2.0
     if gap >= 0.3 or (w.clip is not None and nxt.clip != w.clip):
         cost = min(cost, 1.0)
@@ -49,18 +49,18 @@ def _hard(ws: list[Word], j: int) -> bool:
 
 def split_lines(texts: list[str], rules: Rules, fits: Fits) -> tuple[list[str], float] | None:
     """Best 1- or 2-line layout of these words, with its cost; None when no split fits."""
-    one = clean_line(" ".join(texts))
+    one = clean_line(" ".join(texts), rules.keep_end_punct)
     if units(one) <= rules.max_units and fits(one):
         return [one], 0.0
     if rules.lines < 2 or len(texts) < 2:
         return None
     best = None
     for k in range(1, len(texts)):
-        top, bottom = clean_line(" ".join(texts[:k])), clean_line(" ".join(texts[k:]))
+        top, bottom = clean_line(" ".join(texts[:k]), rules.keep_end_punct), clean_line(" ".join(texts[k:]), rules.keep_end_punct)
         ut, ub = units(top), units(bottom)
         if ut > rules.max_units or ub > rules.max_units or not fits(top) or not fits(bottom):
             continue
-        quality = 0.0 if is_sentence_end(texts[k - 1]) else 0.5 if is_clause_end(texts[k - 1]) else 2.0
+        quality = 0.0 if is_sentence_end(texts[k - 1]) else 0.5 if is_clause_end(texts[k - 1], texts[k]) else 2.0
         balance = 1.0 + (ut - ub) * 0.15 if ut > ub else (ub - ut) * 0.05
         cost = quality + balance
         if best is None or cost < best[1]:
@@ -79,7 +79,7 @@ def _cue_cost(ws: list[Word], i: int, j: int, rules: Rules, fits: Fits):
     if laid is None:
         if j > i:
             return None
-        laid = ([clean_line(ws[i].text)], 10.0)  # one word too long for a line: unavoidable, reported later
+        laid = ([clean_line(ws[i].text, rules.keep_end_punct)], 10.0)  # one word too long for a line: unavoidable, reported later
     lines, cost = laid
     cost += CUE_COST + 4.0 * sum(1 for k in range(i, j) if is_sentence_end(ws[k].text))
     speed = chars(lines) / max(dur, 1e-3)
@@ -144,10 +144,29 @@ def time_cues(ws: list[Word], groups, rules: Rules, fps: Fraction, caps: dict[in
     return cues
 
 
+def _without_short_turns(ws: list[Word], min_s: float) -> list[Word]:
+    """A speaker turn shorter than the shortest cue cannot be a caption of its own, so its words take the speaker before them (the one after, for the very first turn) and the turn stops being a boundary. A longer turn stays one, even a brief real answer."""
+    turns: list[list[Word]] = []
+    for w in ws:
+        if turns and turns[-1][-1].speaker == w.speaker:
+            turns[-1].append(w)
+        else:
+            turns.append([w])
+    if len(turns) < 2:
+        return ws
+    out: list[Word] = []
+    for k, turn in enumerate(turns):
+        short = turn[-1].end - turn[0].start < min_s - 1e-6
+        speaker = turn[0].speaker if not short else out[-1].speaker if out else turns[1][0].speaker
+        out += [replace(w, speaker=speaker) for w in turn]
+    return out
+
+
 def layout(words: list[Word], rules: Rules, fps, fits: Fits | None = None, caps: dict[int, tuple[float, float]] | None = None) -> list[Cue]:
     ws = sorted((w for w in words if w.text.strip()), key=lambda w: (w.start, w.end))
     if not ws:
         return []
+    ws = _without_short_turns(ws, rules.min_s)
     fits = fits or (lambda line: True)
     return time_cues(ws, group(ws, rules, fits), rules, Fraction(fps), caps)
 
