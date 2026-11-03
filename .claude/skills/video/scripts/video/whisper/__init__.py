@@ -13,11 +13,22 @@ from pathlib import Path
 from video.errors import InputError, ToolError
 from video.recognition import RawWord, Recognition, Segment
 
-__all__ = ["DEFAULT_MODEL", "recognise", "read", "recognizes"]
+__all__ = ["DEFAULT_MODEL", "recognise", "read", "recognizes", "model_cached", "uvx_installed"]
 
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 # mlx wheels lag new Pythons; this one is known to install.
 _PYTHON = "3.12"
+
+
+def model_cached(model: str = DEFAULT_MODEL, env=os.environ) -> bool:
+    """Whether a run would start without a download: a snapshot of the model with files in it, under Hugging Face's cache."""
+    home = Path(env.get("HF_HOME") or Path.home() / ".cache/huggingface")
+    snapshots = home / "hub" / ("models--" + model.replace("/", "--")) / "snapshots"
+    return snapshots.is_dir() and any(any(s.iterdir()) for s in snapshots.iterdir() if s.is_dir())
+
+
+def uvx_installed() -> bool:
+    return shutil.which("uvx") is not None
 
 
 def recognizes(d) -> bool:

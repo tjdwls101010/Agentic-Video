@@ -1,0 +1,158 @@
+"""`doctor`: what must be fixed before the first command. The judgment is a pure function of facts, so its cases are worked by hand here (release file names as published for v0.14.0); the facts themselves are read once from this machine through the real entry point."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from video import doctor, filmcraft, openrouter, whisper
+from support import CLI, skill
+
+FAKE_KEY = "sk-test-doctor-0123456789-SECRET"
+
+
+def facts(**over):
+    base = dict(cli_version="0.14.0", app_version="0.14.0", ffmpeg=True, ffprobe=True, uvx=True, whisper_cached=True, key_source="file", chrome=True)
+    return doctor.Facts(**{**base, **over})
+
+
+def check(result, name):
+    return next(c for c in result["checks"] if c["name"] == name)
+
+
+def test_everything_present_is_ok_with_nothing_to_do():
+    r = doctor.judge(facts())
+    assert r["ok"] is True and r["next"] == []
+    assert [c["name"] for c in r["checks"]] == ["filmcraft_cli", "ffmpeg", "ffprobe", "uvx", "whisper_model", "openrouter_key", "chrome"]
+    assert {c["name"]: c["required"] for c in r["checks"]} == {"filmcraft_cli": True, "ffmpeg": True, "ffprobe": True, "uvx": True, "whisper_model": False, "openrouter_key": False, "chrome": False}
+
+
+def test_a_cli_behind_the_app_fails_and_next_installs_the_apps_version():
+    r = doctor.judge(facts(cli_version="0.14.0", app_version="0.17.0"))
+    assert r["ok"] is False and check(r, "filmcraft_cli")["ok"] is False
+    assert "0.14.0" in check(r, "filmcraft_cli")["value"] and "0.17.0" in check(r, "filmcraft_cli")["value"]
+    joined = " ".join(r["next"])
+    assert "filmcraft-cli-0.17.0-macos-universal.zip" in joined and "v0.17.0" in joined and "0.14.0" not in joined
+
+
+def test_a_cli_ahead_of_the_app_fails_too_because_the_app_may_not_open_its_projects():
+    r = doctor.judge(facts(cli_version="0.18.0", app_version="0.17.0"))
+    assert r["ok"] is False and "open" in check(r, "filmcraft_cli")["why"]
+    assert "filmcraft-cli-0.17.0-macos-universal.zip" in " ".join(r["next"])
+
+
+def test_a_missing_cli_with_an_app_installs_the_apps_version():
+    r = doctor.judge(facts(cli_version=None, app_version="0.17.0"))
+    assert r["ok"] is False and "filmcraft-cli-0.17.0-macos-universal.zip" in " ".join(r["next"])
+
+
+def test_a_cli_without_an_app_passes_because_headless_work_needs_no_app():
+    r = doctor.judge(facts(app_version=None))
+    c = check(r, "filmcraft_cli")
+    assert r["ok"] is True and c["ok"] is True and "no app" in c["value"]
+
+
+def test_no_cli_and_no_app_fails_and_says_where_they_come_from():
+    r = doctor.judge(facts(cli_version=None, app_version=None))
+    assert r["ok"] is False and "storytold/filmcraft" in check(r, "filmcraft_cli")["why"]
+
+
+@pytest.mark.parametrize("name, field", [("ffmpeg", "ffmpeg"), ("ffprobe", "ffprobe"), ("uvx", "uvx")])
+def test_a_missing_required_tool_fails_with_a_command_to_fix_it(name, field):
+    r = doctor.judge(facts(**{field: False}))
+    assert r["ok"] is False and check(r, name)["ok"] is False
+    assert r["next"] and any("brew install" in n for n in r["next"])
+
+
+@pytest.mark.parametrize("over", [{"whisper_cached": False}, {"key_source": "none"}, {"chrome": False}])
+def test_a_missing_optional_item_does_not_fail(over):
+    r = doctor.judge(facts(**over))
+    assert r["ok"] is True and r["next"] == []
+    failed = [c for c in r["checks"] if not c["ok"]]
+    assert len(failed) == 1 and failed[0]["required"] is False and failed[0]["why"]
+
+
+@pytest.mark.parametrize("source", ["env", "file", "none"])
+def test_the_key_check_reports_only_where_the_key_is(source):
+    assert check(doctor.judge(facts(key_source=source)), "openrouter_key")["value"] == source
+
+
+def test_install_steps_are_one_command_from_a_temporary_folder():
+    [step] = filmcraft.install_steps("0.17.0")
+    assert step.startswith('cd "$(mktemp -d)" && ')
+    for part in ("gh release download v0.17.0 -R storytold/filmcraft", "-p 'filmcraft-cli-0.17.0-macos-universal.zip'", "-p SHA256SUMS.txt", "shasum -a 256 -c --ignore-missing SHA256SUMS.txt",
+                 "unzip -q filmcraft-cli-0.17.0-macos-universal.zip", "install -m 755 filmcraft-cli-0.17.0-macos-universal/filmcraft-cli ~/.local/bin/filmcraft-cli"):
+        assert part in step
+
+
+# -- the facts each system owns -----------------------------------------------------------------------------------------------
+
+def test_the_key_source_never_needs_the_key(tmp_path):
+    f = tmp_path / ".env"
+    f.write_text("OPENROUTER_API_KEY=abc\n")
+    assert openrouter.key_source(env={"OPENROUTER_API_KEY": "x"}, file=f) == "env"
+    assert openrouter.key_source(env={"OPENROUTER_API_KEY": ""}, file=f) == "none"
+    assert openrouter.key_source(env={}, file=f) == "file"
+    assert openrouter.key_source(env={}, file=tmp_path / "none") == "none"
+
+
+def test_a_whisper_model_is_cached_when_its_snapshot_has_files(tmp_path):
+    env = {"HF_HOME": str(tmp_path)}
+    assert whisper.model_cached("a/b", env) is False
+    snapshot = tmp_path / "hub/models--a--b/snapshots/abc"
+    snapshot.mkdir(parents=True)
+    assert whisper.model_cached("a/b", env) is False
+    (snapshot / "weights.npz").write_text("x")
+    assert whisper.model_cached("a/b", env) is True
+
+
+# -- the real entry point ---------------------------------------------------------------------------------------------------------
+
+def test_the_real_entry_point_agrees_with_this_machine(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", FAKE_KEY)
+    code, res, raw, err = skill("doctor")
+    assert code == (0 if res["ok"] else 1)
+    assert FAKE_KEY not in raw + err and FAKE_KEY[:12] not in raw + err
+    assert check(res, "openrouter_key")["value"] == "env"
+    assert check(res, "ffmpeg")["ok"] is (shutil.which("ffmpeg") is not None)
+    assert check(res, "uvx")["ok"] is (shutil.which("uvx") is not None)
+
+
+def test_a_mismatched_cli_exits_one_through_the_entry_point(tmp_path, monkeypatch):
+    fake = tmp_path / "filmcraft-cli"
+    fake.write_text("#!/bin/sh\necho 'filmcraft-cli 0.0.1'\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    code, res, raw, err = skill("doctor")
+    if check(res, "filmcraft_cli")["value"].endswith("no app: headless only"):
+        pytest.skip("this machine has no FilmCraft app to mismatch")
+    assert code == 1 and res["ok"] is False and "0.0.1" in check(res, "filmcraft_cli")["value"] and res["next"]
+
+
+def test_doctor_takes_no_arguments():
+    code, res, raw, err = skill("doctor", "--fix")
+    assert code == 2
+
+
+@pytest.mark.skipif(shutil.which("sandbox-exec") is None, reason="macOS sandbox-exec is needed to forbid network and writes")
+def test_it_uses_no_network_and_writes_nothing():
+    """Under a sandbox that denies both, the result is the same as without one."""
+    policy = '(version 1)(allow default)(deny network*)(deny file-write* (subpath "/Users")(subpath "/private")(subpath "/tmp"))'
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    denied = subprocess.run(["sandbox-exec", "-p", policy, sys.executable, str(CLI), "doctor"], capture_output=True, text=True, env=env, timeout=120)
+    free = subprocess.run([sys.executable, str(CLI), "doctor"], capture_output=True, text=True, env=env, timeout=120)
+    assert denied.returncode == free.returncode, denied.stderr
+    assert json.loads(denied.stdout) == json.loads(free.stdout)
+
+
+def test_help_explains_every_field():
+    code, _, raw, err = skill("doctor", "--help")
+    assert code == 0
+    for word in ("filmcraft_cli", "whisper_model", "openrouter_key", "chrome", "next", "Prints:", "Exits:"):
+        assert word in raw, word

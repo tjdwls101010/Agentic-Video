@@ -13,7 +13,7 @@ import re
 import sys
 from pathlib import Path
 
-from video import captions, frames, graphic, openrouter, qc, timeline, transcribe, waveform
+from video import captions, doctor, frames, graphic, openrouter, qc, timeline, transcribe, waveform
 from video.errors import InputError, ToolError
 from video.filmcraft import Source
 from video.timecode import Rate
@@ -102,6 +102,14 @@ Prints: {"out", "kind": "video"|"still", "size": "WxH", "fps" (.mov), "frames", 
 Placing: the steps put the render on a new video track and its sound on a new audio track, leaving A1's speech alone.
 
 Exits: 0 written; 2 the command line must change (a .mov without a length, a length that is not a positive finite number, --out not .mov or .png, --out the page itself, no page, --fps written as a decimal, --size without --fps, --sequence with --size, an --out folder that cannot be made); 1 the render failed and `error` starts with the stage: launch (Chrome or Playwright missing; the error says how to install, which is the user's to approve), load, files (a local file the page asked for is missing), fonts, images (one cannot be decoded), page (an uncaught error or unhandled rejection), seek (seek or the settle after it failed or timed out, or a CSS transition started), audio, capture, encode (ffmpeg), verify (the written movie differs from what was asked for), write (the file could not be put in place); or filmcraft-cli failed reading the sequence.
+"""
+
+
+DOCTOR_DESC = """\
+Check this machine before the first command. It takes no arguments, installs nothing, uses no network and writes nothing.
+Prints: {"ok" (every required check passed), "checks": [{"name", "ok", "required", "value", "why"}], "next": [commands that fix what is required, with versions filled in]}.
+Checks: filmcraft_cli (required; installed and the same version as the app; passes with no app, since headless work needs none), ffmpeg, ffprobe, uvx (required; installed), whisper_model (optional; the default local model is cached, value cached or not cached), openrouter_key (optional; value env, file or none, where the key would come from; the key itself is never printed), chrome (optional; needed by graphic). An optional item matters only when the task needs it, and never fails the check.
+Exits: 0 every required check passed; 1 a required check failed; 2 the command line must change.
 """
 
 
@@ -247,6 +255,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", type=Path, required=True, metavar="SHEET.png", help="where to write the sheet")
     p.set_defaults(run=lambda a: waveform.sheet(a.media.resolve(), a.at, [f.resolve() for f in a.words], a.out.resolve()))
 
+    p = sub.add_parser("doctor", help="what must be fixed before the first command, and the commands that fix it", description=DOCTOR_DESC, formatter_class=fmt)
+    p.set_defaults(run=run_doctor)
+
     p = sub.add_parser("graphic", help="a local HTML page rendered to a transparent MOV (with its sound) or PNG still for FilmCraft", description=GRAPHIC_DESC, formatter_class=fmt)
     p.add_argument("page", type=Path, metavar="PAGE.html", help="the page to render, a local HTML file")
     p.add_argument("--out", type=Path, required=True, metavar="X.mov|X.png", help="what to write, chosen by extension: .mov a transparent ProRes 4444 movie, .png one transparent still. An existing file is replaced only after the new one is written and verified")
@@ -279,6 +290,12 @@ def run_graphic(a) -> dict:
         raise InputError("--sequence needs --project or --bridge")
     source = source_of(a) if a.size is None else None
     return graphic.render(a.page.resolve(), a.out.resolve(), source=source, size=a.size, rate=a.fps, sequence=a.sequence, duration=a.duration, frame_at=a.frame_at)
+
+
+def run_doctor(a) -> dict:
+    out = doctor.report()
+    out["_exit"] = EXIT_OK if out["ok"] else EXIT_TOOL
+    return out
 
 
 def run_qc(a) -> dict:

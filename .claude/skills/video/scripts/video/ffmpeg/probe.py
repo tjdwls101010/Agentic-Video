@@ -19,6 +19,10 @@ def tool(name: str) -> str:
     return found
 
 
+def installed() -> dict[str, bool]:
+    return {name: shutil.which(name) is not None for name in ("ffmpeg", "ffprobe")}
+
+
 @dataclass
 class VideoStream:
     codec: str

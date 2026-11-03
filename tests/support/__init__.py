@@ -19,7 +19,7 @@ TICKS = 254_016_000_000
 FILMCRAFT = shutil.which("filmcraft-cli") or (str(Path.home() / ".local/bin/filmcraft-cli") if (Path.home() / ".local/bin/filmcraft-cli").exists() else None)
 FFMPEG = shutil.which("ffmpeg")
 
-needs_filmcraft = pytest.mark.skipif(FILMCRAFT is None, reason="filmcraft-cli is not installed (see SKILL.md 'Before the first command')")
+needs_filmcraft = pytest.mark.skipif(FILMCRAFT is None, reason="filmcraft-cli is not installed (cli.py doctor gives the command)")
 needs_ffmpeg = pytest.mark.skipif(FFMPEG is None, reason="ffmpeg is not installed")
 
 

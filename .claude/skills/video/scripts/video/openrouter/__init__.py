@@ -19,7 +19,7 @@ from pathlib import Path
 from video.errors import InputError, ToolError
 from video.recognition import Event, RawWord, Recognition, Segment
 
-__all__ = ["DEFAULT_MODEL", "KEY_FILE", "Reply", "load_key", "ready", "transcribe", "read", "merge", "recognizes"]
+__all__ = ["DEFAULT_MODEL", "KEY_FILE", "Reply", "load_key", "key_source", "ready", "transcribe", "read", "merge", "recognizes"]
 
 DEFAULT_MODEL = "elevenlabs/scribe-v2"
 KEY_FILE = Path(__file__).parent / ".env"
@@ -59,6 +59,13 @@ def load_key(env=os.environ, file: Path = KEY_FILE) -> str | None:
         if eq and name.strip() == _KEY_NAME:
             return value.strip().strip("'\"") or None
     return None
+
+
+def key_source(env=os.environ, file: Path = KEY_FILE) -> str:
+    """Where the key would come from, `env`, `file` or `none`; the key itself goes no further than this unit."""
+    if load_key(env, file) is None:
+        return "none"
+    return "env" if _KEY_NAME in env else "file"
 
 
 def _base_url() -> str:

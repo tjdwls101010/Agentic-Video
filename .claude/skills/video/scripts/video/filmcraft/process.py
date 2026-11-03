@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from video.errors import ToolError
+
+_APP_DIRS = [Path("/Applications"), Path.home() / "Applications"]
 
 
 def binary() -> str:
@@ -19,7 +22,7 @@ def binary() -> str:
     local = Path.home() / ".local/bin/filmcraft-cli"
     if local.exists():
         return str(local)
-    raise ToolError("filmcraft-cli is not installed; SKILL.md 'Before the first command' installs the version matching the app")
+    raise ToolError("filmcraft-cli is not installed; `doctor` gives the command that installs the version matching the app")
 
 
 @dataclass(frozen=True)
@@ -72,3 +75,28 @@ def render(project: Path, seconds: float, out: Path, scale: float) -> Path:
         last = next((l for l in reversed(r.stderr.splitlines()) if l.strip()), f"exit {r.returncode}")
         raise ToolError(f"render at {seconds:.3f} s failed: {last}", r.stderr, [binary(), *args])
     return out
+
+
+def versions() -> tuple[str | None, str | None]:
+    """The installed CLI's version and the app's, each None when it is not installed. Nothing is opened or written."""
+    cli = None
+    try:
+        r = subprocess.run([binary(), "--version"], capture_output=True, text=True, timeout=30)
+        if r.returncode == 0 and r.stdout.split():
+            cli = r.stdout.split()[-1]
+    except (ToolError, OSError, subprocess.TimeoutExpired):
+        pass
+    app = None
+    for root in _APP_DIRS:
+        try:
+            app = plistlib.loads((root / "FilmCraft.app/Contents/Info.plist").read_bytes())["CFBundleShortVersionString"]
+            break
+        except (OSError, KeyError, plistlib.InvalidFileException):
+            continue
+    return cli, app
+
+
+def install_steps(version: str) -> list[str]:
+    """One command that fetches the release of `version`, checks it against the published sums and installs the CLI, working in a temporary folder."""
+    name = f"filmcraft-cli-{version}-macos-universal"
+    return [f"cd \"$(mktemp -d)\" && gh release download v{version} -R storytold/filmcraft -p '{name}.zip' -p SHA256SUMS.txt && shasum -a 256 -c --ignore-missing SHA256SUMS.txt && unzip -q {name}.zip && mkdir -p ~/.local/bin && install -m 755 {name}/filmcraft-cli ~/.local/bin/filmcraft-cli"]
