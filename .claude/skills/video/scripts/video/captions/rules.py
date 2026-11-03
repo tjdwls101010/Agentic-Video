@@ -78,4 +78,4 @@ def is_sentence_end(word: str) -> bool:
 
 def is_clause_end(word: str, next_word: str, rules: Rules) -> bool:
     """Whether a break after `word`, with `next_word` following it, falls between clauses. A conjunction opens a clause under English rules, so the break goes before it; under Korean rules, quoted English keeps it at the end of the line."""
-    return bool(_CLAUSE_END.search(word)) or (next_word if rules.break_before_conjunction else word).lower() in _CONJUNCTIONS
+    return bool(_CLAUSE_END.search(word)) or (next_word.lower() if rules.break_before_conjunction else word) in _CONJUNCTIONS

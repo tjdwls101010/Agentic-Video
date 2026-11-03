@@ -107,7 +107,7 @@ Exits: 0 written; 2 the command line must change (a .mov without a length, a len
 
 DOCTOR_DESC = """\
 Check this machine before the first command. It takes no arguments, installs nothing, uses no network and writes nothing.
-Prints: {"ok" (every required check passed), "checks": [{"name", "ok", "required", "value", "why"}], "next": [commands that fix what is required, with versions filled in; empty with neither the CLI nor the app, when the filmcraft_cli `why` says where they come from]}.
+Prints: {"ok" (every required check passed), "checks": [{"name", "ok", "required", "value", "why"}], "next": [commands that fix what is required, with versions filled in; with neither the CLI nor the app none can be named for them, and the filmcraft_cli `why` says where they come from]}.
 Checks: filmcraft_cli (required; installed and the same version as the app; passes with no app, since headless work needs none), ffmpeg, ffprobe and uvx (each required; installed), whisper_model (optional; the default local model is cached, value cached or not cached), openrouter_key (optional; value env, file or none, where the key would come from; the key itself is never printed), chrome (optional; needed by graphic). An optional item matters only when the task needs it, and never fails the check.
 Exits: 0 every required check passed; 1 a required check failed; 2 the command line must change.
 """
@@ -117,7 +117,7 @@ WAVEFORM_DESC = f"""\
 Look at sound you cannot hear: each --at window drawn as a waveform above a 0 to 8 kHz spectrogram with a grid at each second, and each --words file as a row of labelled boxes on the same time axis. A column means a time, so a box and the sound under it can be compared directly.
 Reading it: voiced sound shows as stacked harmonics; unvoiced sound such as s or f shows as noise high in the band. A word's box should start at that word's first energy. Over music or a crowd, a box and energy lining up does not prove a voice: the energy may not be the voice.
 Sources: --words takes transcript.set lines (from transcribe, with or without an item) and SubRip files, and reads their times as seconds of MEDIA: a source file takes media-time transcripts, an exported file takes sequence-time captions. To see an engine's own times from a raw reply, make a line first with transcribe MEDIA --from-json RAW.json --snap off --out X.jsonl, which costs nothing.
-Prints: {{"sheet", "width", "windows": [{{"start", "end", "y": {{"wave", "spectrum", "rows"}} ([top, bottom) in sheet pixels), "speech": [[start, end]] (the same speech measurement transcribe uses, in seconds, so you can often decide before opening the picture; empty when the whole file's level is too flat to measure, and a span over music proves nothing), "rows": [{{"source", "items": [{{"text", "start", "end"}}]}}]}}], "notes"}}. Read the sheet image to see it.
+Prints: {{"sheet", "width", "windows": [{{"start", "end", "y": {{"wave", "spectrum", "rows"}} ([top, bottom) in sheet pixels), "speech": [[start, end]] (the same speech measurement transcribe uses, in seconds, so you can often decide before opening the picture; empty for a window with no speech, or when the whole file's level is too flat to measure; a span over music proves nothing), "rows": [{{"source", "items": [{{"text", "start", "end"}}]}}]}}], "notes"}}. Read the sheet image to see it.
 Exits: 0 written; 2 no window, more than {waveform.MAX_WINDOWS} windows, a window under {waveform.MIN_WINDOW_SECONDS} s, over {waveform.MAX_WINDOW_SECONDS} s or outside the media, more than {waveform.MAX_SOURCES} --words files, one that cannot be read, or media with no audio; 1 ffmpeg is missing or failed.
 """
 
@@ -243,7 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", metavar="NAME", help=f"local: an mlx-whisper model (default {transcribe.WHISPER_MODEL}); openrouter: a transcription model (default {transcribe.OPENROUTER_MODEL})")
     p.add_argument("--diarize", action="store_true", help="openrouter: label speakers, where the model supports it (a model that does not refuses the request)")
     p.add_argument("--no-zdr", dest="zdr", action="store_false", help="openrouter: allow routes that keep data (by default only zero-retention routes are used)")
-    p.add_argument("--chunk", type=positive, metavar="S", help="openrouter: cut the audio at silences into pieces of at most S seconds")
+    p.add_argument("--chunk", type=positive, metavar="S", help="openrouter: cut the audio at silences into pieces of at most S seconds, 1 or more; the last may run a second over")
     p.add_argument("--snap", dest="snap_mode", choices=["auto", "on", "off"], default="auto", help="move word edges onto measured speech: auto does for local and not for openrouter (default auto)")
     p.add_argument("--max-shift", type=float, default=0.5, metavar="SEC", help="how far an outer edge of a stretch of speech may move outward when snapping (default 0.5)")
     p.set_defaults(run=run_transcribe)

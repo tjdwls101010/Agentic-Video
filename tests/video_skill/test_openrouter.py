@@ -985,7 +985,7 @@ def decoded_speech(data: str, d: Path, name: str):
     f = d / name
     f.write_bytes(base64.b64decode(data))
     from video import ffmpeg as ff
-    spans = ff.measured_speech(f)
+    spans, _ = ff.measured_speech(f)
     f.unlink()
     return spans
 
@@ -999,3 +999,45 @@ def test_every_piece_and_the_measurement_count_from_the_start_of_the_picture(tmp
     bodies = sorted((r["body"]["input_audio"]["data"] for r in provider.requests), key=len)
     starts = sorted(decoded_speech(b, tmp_path / ".", f"p{i}.ogg")[0][0] for i, b in enumerate(bodies))
     assert starts == [pytest.approx(0.6, abs=0.05), pytest.approx(1.2, abs=0.05)]
+
+
+# -- second review pass --------------------------------------------------------------------------------------------------------------------------
+
+def test_a_music_only_reply_is_not_refused_for_having_no_lengths():
+    """One named sound and three lone `...`: none of them are words, so none can make the words look broken."""
+    rec = openrouter.read(reply([("[gentle music]", 0.0, 20.0, {"type": "audio_event"}), ("...", 3.0, 3.0), ("...", 9.0, 9.0), ("...", 15.0, 15.0)], text="[gentle music] ... ... ...", duration=20.0))
+    assert rec.segments == [] and len(rec.events) == 1
+
+
+def test_media_with_no_container_length_uses_the_length_of_its_sound(tmp_path, provider):
+    """A piped WebM records no duration; speech ends at 2 s of 8 s, and a word at 6 s is inside the audio. The last measured speech is not the end of the file."""
+    wav = tone_bursts(tmp_path / "b.wav", [(1.0, 2.0)], 8)
+    webm = tmp_path / "nodur.webm"
+    with open(webm, "wb") as f:
+        subprocess.run(["ffmpeg", "-v", "error", "-i", str(wav), "-c:a", "libopus", "-f", "webm", "-"], stdout=f, check=True)
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(webm)], capture_output=True, text=True).stdout.strip()
+    if probe not in ("N/A", ""):
+        pytest.skip("this ffmpeg records a duration in piped WebM")
+    provider.script = [(200, {}, reply([("a", 6.0, 6.5)], duration=8.0))]
+    code, res, raw, err = run(tmp_path, webm)
+    assert code == 0, raw + err
+    assert seconds_of(read_line(tmp_path / "t.jsonl")) == [("a", 6.0, 6.5)]
+
+
+@pytest.mark.parametrize("value", ["1e-17", "0.05", "0.99"])
+def test_a_chunk_under_a_second_is_a_usage_error(tmp_path, audio, provider, value):
+    code, res, raw, err = run(tmp_path, audio, "--chunk", value)
+    assert code == 2 and "--chunk" in res["error"]
+    assert provider.requests == []
+
+
+def test_local_words_on_sound_that_starts_late_are_moved_to_the_time_of_the_picture(tmp_path):
+    """Whisper counts from the first sample. Sound starts 0.5 s late with a burst from 1.2 to 2.2 s of the movie, so a word Whisper put at 0.7-1.7 belongs at 1.2-2.2, with no snapping to help it get there."""
+    movie = late_audio_movie(tmp_path, [(1.2, 2.2)], 4, 0.5)
+    w = tmp_path / "w.json"
+    w.write_text(json.dumps({"language": "en", "segments": [{"start": 0.7, "end": 1.7, "text": "word", "words": [{"word": " word", "start": 0.7, "end": 1.7, "probability": 0.9}]}]}))
+    code, res, raw, err = run(tmp_path, movie, "--from-json", str(w), "--snap", "off")
+    assert code == 0, raw + err
+    assert res["unmatched"] == 0
+    [(text, start, end)] = seconds_of(read_line(tmp_path / "t.jsonl"))
+    assert start == pytest.approx(1.2, abs=0.02) and end == pytest.approx(2.2, abs=0.02)

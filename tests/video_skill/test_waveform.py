@@ -260,3 +260,10 @@ def test_a_window_too_short_to_draw_is_a_usage_error(tmp_path, at):
     audio = tone_bursts(tmp_path / "t.wav", [(1.0, 2.0)], 10)
     code, res, raw, err = run(tmp_path, audio, "--at", at)
     assert code == 2 and res["error"]
+
+
+def test_a_tenth_of_a_second_is_long_enough_despite_float_rounding(tmp_path):
+    """2.3 - 2.2 is 0.0999… in floating point."""
+    audio = tone_bursts(tmp_path / "t.wav", [(1.0, 2.0)], 10)
+    code, res, raw, err = run(tmp_path, audio, "--at", "2.2-2.3")
+    assert code == 0, raw + err

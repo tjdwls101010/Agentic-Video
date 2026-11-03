@@ -200,6 +200,11 @@ def _lines(words: list[RawWord]) -> list[Segment]:
     return [Segment(line[0].start, line[-1].end, " ".join(w.text for w in line), words=line) for line in lines]
 
 
+def _is_spoken(word: dict) -> bool:
+    """Not a named sound, and more than punctuation such as a lone `...`."""
+    return word.get("type") != "audio_event" and any(c.isalnum() for c in str(word.get("word", "")))
+
+
 def _check_times(text: str, entries: list[dict], duration: float | None) -> None:
     """Some routes return a full `text` with a word list that is cut short or runs past the audio, and a reply can carry times no speech could have. These checks catch that whatever the model is, and passing them does not prove the times."""
     of = len(text.split())
@@ -211,12 +216,12 @@ def _check_times(text: str, entries: list[dict], duration: float | None) -> None
     if duration and last > duration + _PAST_END:
         raise ToolError(f"the reply puts a word at {last:.1f} s in {duration:.1f} s of audio, so its times are broken or it belongs to other media. {try_chunk}")
     starts = [_number(w["start"]) for w in entries]
-    ends = [_number(w["end"]) for w in entries]
     if any(t < -_BEFORE_ZERO for t in starts):
         raise ToolError(f"the reply has a word before the start of the audio, so its times are broken. {try_chunk}")
     if any(b <= a - _BACKWARDS for a, b in zip(starts, starts[1:])):
         raise ToolError(f"the reply's word times run backwards, so they are broken. {try_chunk}")
-    if len(entries) >= _MANY_WORDS and 2 * sum(e <= s for s, e in zip(starts, ends)) > len(entries):
+    spoken = [w for w in entries if _is_spoken(w)]
+    if len(spoken) >= _MANY_WORDS and 2 * sum(_number(w["end"]) <= _number(w["start"]) for w in spoken) > len(spoken):
         raise ToolError(f"most of the reply's words have no length, so its times are broken. {try_chunk}")
 
 
@@ -234,7 +239,7 @@ def _parse(d, duration: float | None) -> Recognition:
         text, start, end = str(w.get("word", "")).strip(), _number(w["start"]), _number(w["end"])
         if w.get("type") == "audio_event":
             events.append(Event(text, start, end))
-        elif any(c.isalnum() for c in text):
+        elif _is_spoken(w):
             prob = w.get("confidence")
             words.append(RawWord(text, start, end, _number(prob) if prob is not None else None, _speaker(w)))
     language = str(d.get("language") or "")

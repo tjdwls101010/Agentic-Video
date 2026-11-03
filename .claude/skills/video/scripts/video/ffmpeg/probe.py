@@ -12,7 +12,7 @@ from pathlib import Path
 from video.errors import InputError, ToolError
 
 
-# Sound that starts after its picture is padded back to the container's zero, so a time means the same in every measurement, piece and picture here.
+# Sound that starts after its picture is padded back to zero, so a time means the same in every measurement, piece and picture here. Sound that starts before its picture stays where it is: AAC priming does that by less than a frame.
 FROM_CONTAINER_START = "aresample=async=1:first_pts=0"
 
 
@@ -56,6 +56,7 @@ class AudioStream:
     sample_rate: int | None
     channels: int | None
     samples: int | None = None         # length in samples, when the stream's time base is one sample
+    start: float = 0.0                 # seconds after the container's zero that the first sample plays
 
 
 @dataclass
@@ -110,5 +111,5 @@ def probe(path: Path) -> Media:
             ))
         elif s.get("codec_type") == "audio":
             m.audio.append(AudioStream(codec=s.get("codec_name") or "", profile=s.get("profile"),
-                                       sample_rate=int(s["sample_rate"]) if s.get("sample_rate") else None, channels=s.get("channels"), samples=_samples(s)))
+                                       sample_rate=int(s["sample_rate"]) if s.get("sample_rate") else None, channels=s.get("channels"), samples=_samples(s), start=float(s.get("start_time") or 0)))
     return m

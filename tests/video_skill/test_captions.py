@@ -528,3 +528,8 @@ def test_korean_rules_stop_reading_a_word_merely_ending_in_a_conjunction_as_a_cl
     """Whole-word match under both profiles: `understand` is no break of its own in Korean text either."""
     lines = captions.layout(words(even("여러분 모두 understand 이야기를 오늘 자막으로 함께 봅니다", 0.0, 4.0)), KO, FPS)[0].lines
     assert not lines[0].endswith("understand")
+
+
+def test_korean_rules_do_not_read_a_capitalised_conjunction_as_a_clause_end():
+    """The Korean rules matched these in lower case only. After `And`: 13 | 13.5 units with no clause break (2.025); after `하고`: 11 | 15.5, a clause break, cost 0.725."""
+    assert captions.layout(words(even("오늘 편집 이야기를 하고 And 다음에 자막을 봅니다 정말로", 0.0, 4.0)), KO, FPS)[0].lines == ["오늘 편집 이야기를 하고", "And 다음에 자막을 봅니다 정말로"]

@@ -24,6 +24,7 @@ WHISPER_MODEL = whisper.DEFAULT_MODEL
 OPENROUTER_MODEL = openrouter.DEFAULT_MODEL
 REVIEW_SHOWN = 40
 CONCURRENT_REQUESTS = 4
+MIN_CHUNK = 1.0
 
 
 def _refuse_existing(*paths: Path) -> None:
@@ -104,6 +105,8 @@ def _lines_text(words: list[Word], events) -> str:
 
 def transcribe(media: Path, out: Path, *, engine: str | None = None, from_json: Path | None = None, item: int | None = None, language: str | None = None, model: str | None = None,
                diarize: bool = False, zdr: bool = True, snap_mode: str = "auto", max_shift: float = 0.5, chunk: float | None = None) -> dict:
+    if chunk is not None and chunk < MIN_CHUNK:
+        raise InputError(f"--chunk {chunk:g}: a piece must be at least {MIN_CHUNK:g} s")
     info = ffmpeg.probe(media)
     if not info.audio:
         raise InputError(f"{media}: no audio stream")
@@ -113,8 +116,8 @@ def transcribe(media: Path, out: Path, *, engine: str | None = None, from_json: 
         openrouter.ready()
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    spans = ffmpeg.measured_speech(media)
-    seconds = info.duration or (spans[-1][1] if spans else 0.0)
+    spans, sound_seconds = ffmpeg.measured_speech(media)
+    seconds = info.duration or sound_seconds
     notes: list[str] = []
     cost: float | None = 0
     if engine == "local":
@@ -127,7 +130,9 @@ def transcribe(media: Path, out: Path, *, engine: str | None = None, from_json: 
         engine, rec = _read_saved(from_json, seconds)
         raw_json = from_json
 
-    words = [Word(w.text, w.start, w.end, w.prob, k, w.speaker) for k, s in enumerate(rec.segments) for w in s.words]
+    # Whisper counts from the first sample; everything else here counts from the picture.
+    late = max(info.audio[0].start, 0.0) if engine == "local" else 0.0
+    words = [Word(w.text, w.start + late, w.end + late, w.prob, k, w.speaker) for k, s in enumerate(rec.segments) for w in s.words]
     fps = info.video[0].fps if info.video and info.video[0].fps else 30
     min_dur = 1 / float(fps)
     moved = snap_mode == "on" or (snap_mode == "auto" and engine == "local")

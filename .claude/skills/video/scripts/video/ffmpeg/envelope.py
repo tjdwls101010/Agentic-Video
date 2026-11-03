@@ -57,6 +57,7 @@ def speech_spans(env_db: list[float], hop: float, min_gap: float = 0.12, min_spa
     return [(a * hop, (b + 1) * hop) for a, b in runs if (b + 1 - a) * hop >= min_span]
 
 
-def measured_speech(path: Path) -> list[tuple[float, float]]:
-    """Where a media file has speech, by the one measurement `transcribe` and `waveform` both report."""
-    return speech_spans(envelope(path, MEASURE_HOP), MEASURE_HOP)
+def measured_speech(path: Path) -> tuple[list[tuple[float, float]], float]:
+    """Where a media file has speech, by the one measurement `transcribe` and `waveform` both report, and how long its sound runs, which a file may not record."""
+    level = envelope(path, MEASURE_HOP)
+    return speech_spans(level, MEASURE_HOP), len(level) * MEASURE_HOP

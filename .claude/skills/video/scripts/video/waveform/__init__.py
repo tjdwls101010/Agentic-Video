@@ -44,7 +44,7 @@ def _windows(at: list[str], rate: Rate, seconds: float | None) -> list[tuple[flo
         a, b = _time(parts[0], rate), _time(parts[1], rate)
         if not (math.isfinite(a) and math.isfinite(b) and 0 <= a < b):
             raise InputError(f"--at: {text!r} must start before it ends")
-        if b - a < MIN_WINDOW_SECONDS:
+        if b - a < MIN_WINDOW_SECONDS - 1e-9:
             raise InputError(f"--at: {text!r} is shorter than {MIN_WINDOW_SECONDS} s, too short to draw")
         if b - a > MAX_WINDOW_SECONDS:
             raise InputError(f"--at: {text!r} is {b - a:.0f} s; a window shows at most {MAX_WINDOW_SECONDS} s, beyond which words stop being readable")
@@ -71,7 +71,7 @@ def sheet(media: Path, at: list[str], words: list[Path], out: Path) -> dict:
     rate = Rate(fps.numerator, fps.denominator) if fps else Rate(30)
     windows = _windows(at, rate, info.duration)
     sources = [(path.name, _items(path)) for path in words]
-    speech = ffmpeg.measured_speech(media)
+    speech, _ = ffmpeg.measured_speech(media)
     notes: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         drawn = []
