@@ -13,7 +13,7 @@ import re
 import sys
 from pathlib import Path
 
-from video import captions, frames, graphic, openrouter, qc, timeline, transcribe
+from video import captions, frames, graphic, openrouter, qc, timeline, transcribe, waveform
 from video.errors import InputError, ToolError
 from video.filmcraft import Source
 from video.timecode import Rate
@@ -102,6 +102,15 @@ Prints: {"out", "kind": "video"|"still", "size": "WxH", "fps" (.mov), "frames", 
 Placing: the steps put the render on a new video track and its sound on a new audio track, leaving A1's speech alone.
 
 Exits: 0 written; 2 the command line must change (a .mov without a length, a length that is not a positive finite number, --out not .mov or .png, --out the page itself, no page, --fps written as a decimal, --size without --fps, --sequence with --size, an --out folder that cannot be made); 1 the render failed and `error` starts with the stage: launch (Chrome or Playwright missing; the error says how to install, which is the user's to approve), load, files (a local file the page asked for is missing), fonts, images (one cannot be decoded), page (an uncaught error or unhandled rejection), seek (seek or the settle after it failed or timed out, or a CSS transition started), audio, capture, encode (ffmpeg), verify (the written movie differs from what was asked for), write (the file could not be put in place); or filmcraft-cli failed reading the sequence.
+"""
+
+
+WAVEFORM_DESC = f"""\
+Look at sound you cannot hear: each --at window drawn as a waveform above a 0 to 8 kHz spectrogram with a grid at each second, and each --words file as a row of labelled boxes on the same time axis. A column means a time, so a box and the sound under it can be compared directly.
+Reading it: voiced sound shows as stacked harmonics; unvoiced sound such as s or f shows as noise high in the band. A word's box should start at that word's first energy. Over music or a crowd, a box and energy lining up does not prove a voice: the energy may not be the voice.
+Sources: --words takes transcript.set lines (from transcribe, with or without an item) and SubRip files. To compare a raw engine reply, turn it into a line first with transcribe --from-json, which costs nothing.
+Prints: {{"sheet", "width", "windows": [{{"start", "end", "y": {{"wave", "spectrum", "rows"}} ([top, bottom) in sheet pixels), "speech": [[start, end]] (the same speech measurement transcribe uses, in seconds, so you can often decide before opening the picture; none measured under continuous sound), "rows": [{{"source", "items": [{{"text", "start", "end"}}]}}]}}], "notes"}}. Read the sheet image to see it.
+Exits: 0 written; 2 no window, more than {waveform.MAX_WINDOWS} windows, a window over {waveform.MAX_WINDOW_SECONDS} s or outside the media, more than {waveform.MAX_SOURCES} --words files, one that cannot be read, or media with no audio; 1 ffmpeg is missing or failed.
 """
 
 
@@ -228,6 +237,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--snap", dest="snap_mode", choices=["auto", "on", "off"], default="auto", help="move word edges onto measured speech: auto does for local and not for openrouter (default auto)")
     p.add_argument("--max-shift", type=float, default=0.5, metavar="SEC", help="how far an outer edge of a stretch of speech may move outward when snapping (default 0.5)")
     p.set_defaults(run=run_transcribe)
+
+    p = sub.add_parser("waveform", help="stretches of audio drawn as waveform and spectrogram, with word boxes on the same time axis", description=WAVEFORM_DESC, formatter_class=fmt)
+    p.add_argument("media", type=Path, metavar="MEDIA", help="the media file to draw")
+    p.add_argument("--at", nargs="+", required=True, metavar="A-B", help="windows, in seconds (137.5-140) or timecode at the media's rate (00:02:17:15-00:02:20:00)")
+    p.add_argument("--words", nargs="+", type=Path, default=[], metavar="FILE", help="transcript.set lines or SubRip files to draw as rows, labelled with the file's name")
+    p.add_argument("--out", type=Path, required=True, metavar="SHEET.png", help="where to write the sheet")
+    p.set_defaults(run=lambda a: waveform.sheet(a.media.resolve(), a.at, [f.resolve() for f in a.words], a.out.resolve()))
 
     p = sub.add_parser("graphic", help="a local HTML page rendered to a transparent MOV (with its sound) or PNG still for FilmCraft", description=GRAPHIC_DESC, formatter_class=fmt)
     p.add_argument("page", type=Path, metavar="PAGE.html", help="the page to render, a local HTML file")
