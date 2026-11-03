@@ -16,9 +16,10 @@ class Rules:
     gap_frames: int = 2         # between cues that follow each other closely
     close_gap_s: float = 0.5    # a smaller gap is closed down to gap_frames
     keep_end_punct: bool = False
+    break_before_conjunction: bool = False
 
 
-RULE_PROFILES = {"ko": Rules(), "en": Rules(max_units=21.0, cps=20.0, keep_end_punct=True)}
+RULE_PROFILES = {"ko": Rules(), "en": Rules(max_units=21.0, cps=20.0, keep_end_punct=True, break_before_conjunction=True)}
 
 
 HELP = """\
@@ -66,8 +67,7 @@ def clean_line(line: str, keep_end_punct: bool = False) -> str:
 # Where a Korean clause ends: a comma or semicolon, a connective ending (also with the polite 요 speech adds: 그래서요, 있는데요),
 # or a sentence-final ending speech recognisers often leave without a full stop (요, 니다, 죠).
 _CLAUSE_END = re.compile(r"([,;:，、]|(?:고|서|며|면서|는데|은데|ㄴ데|지만|니까|으니까|아서|어서|해서|도록|려고|으면|면|거나|든지|다가|자마자)요?|요|니다|죠)$")
-# An English clause starts at one of these, so the break goes before the word and not after it.
-_CLAUSE_START = {"and", "but", "so", "because"}
+_CONJUNCTIONS = {"and", "but", "so", "because"}
 _SENTENCE_END = re.compile(r"[.?!…。？！]['\"”’)]*$")
 _NOT_SENTENCE_END = {"Mr.", "Mrs.", "Ms.", "Dr.", "St.", "U.S.", "Jr.", "Sr."}
 
@@ -76,6 +76,6 @@ def is_sentence_end(word: str) -> bool:
     return word not in _NOT_SENTENCE_END and bool(_SENTENCE_END.search(word.replace("...", "…")))
 
 
-def is_clause_end(word: str, next_word: str = "") -> bool:
-    """Whether a break after `word`, with `next_word` following it, falls between clauses."""
-    return bool(_CLAUSE_END.search(word)) or next_word.lower() in _CLAUSE_START
+def is_clause_end(word: str, next_word: str, rules: Rules) -> bool:
+    """Whether a break after `word`, with `next_word` following it, falls between clauses. A conjunction opens a clause under English rules, so the break goes before it; under Korean rules, quoted English keeps it at the end of the line."""
+    return bool(_CLAUSE_END.search(word)) or (next_word if rules.break_before_conjunction else word).lower() in _CONJUNCTIONS

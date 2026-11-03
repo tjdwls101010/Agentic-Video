@@ -14,11 +14,11 @@ from video import ffmpeg, openrouter, whisper
 from video.errors import InputError
 from video.filmcraft import TranscriptWord, write_transcript_line
 
-from .chunks import auto_chunk, plan_chunks
+from .chunks import auto_chunk, chunk_limit, plan_chunks
 from .core import Word, keep_times, snap
 from .review import COMPRESSED_RATE, COMPRESSED_WINDOW, LOW_PROB, flags
 
-__all__ = ["Word", "snap", "keep_times", "plan_chunks", "auto_chunk", "transcribe", "WHISPER_MODEL", "OPENROUTER_MODEL", "LOW_PROB", "COMPRESSED_RATE", "COMPRESSED_WINDOW", "REVIEW_SHOWN"]
+__all__ = ["Word", "snap", "keep_times", "plan_chunks", "auto_chunk", "chunk_limit", "transcribe", "WHISPER_MODEL", "OPENROUTER_MODEL", "LOW_PROB", "COMPRESSED_RATE", "COMPRESSED_WINDOW", "REVIEW_SHOWN"]
 
 WHISPER_MODEL = whisper.DEFAULT_MODEL
 OPENROUTER_MODEL = openrouter.DEFAULT_MODEL
@@ -45,12 +45,8 @@ def _recognise_openrouter(media: Path, out: Path, raw_json: Path, seconds: float
     """One request when the file fits and no length was asked for, otherwise several at once over pieces cut at silences, merged back into one reply. The temporary audio goes whatever happens."""
     with tempfile.TemporaryDirectory(dir=out.parent, prefix=".transcribe-audio-") as tmp:
         whole = Path(tmp) / "audio.ogg"
-        limit = chunk
-        if limit is None:
-            limit = auto_chunk(ffmpeg.extract_audio(media, whole).stat().st_size, seconds)
+        limit = chunk_limit(chunk, ffmpeg.extract_audio(media, whole).stat().st_size, seconds)
         if limit is None or seconds <= limit:
-            if not whole.exists():
-                ffmpeg.extract_audio(media, whole)
             print(f"sending {media.name} to {model} …", file=sys.stderr)
             reply = openrouter.transcribe(whole, model, language, diarize, zdr, seconds)
             raw, cost = reply.raw, reply.cost_usd

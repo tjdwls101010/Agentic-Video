@@ -149,7 +149,7 @@ def test_a_source_with_nothing_in_a_window_is_noted(tmp_path):
 
 
 def test_a_transcribe_line_without_an_item_is_readable(tmp_path):
-    audio = tone_bursts(tmp_path / "t.wav", [(1.0, 2.0)], 3)
+    audio = tone_bursts(tmp_path / "t.wav", [(1.0, 2.0)], 11)
     code, res, raw, err = skill("transcribe", str(audio), "--out", str(tmp_path / "x.jsonl"), "--from-json", str(Path(__file__).parent / "fixtures/say_ko.scribe.json"), cwd=tmp_path)
     assert code == 0, raw + err
     code, res, raw, err = run(tmp_path, audio, "--at", "0-3", "--words", str(tmp_path / "x.jsonl"))
@@ -235,5 +235,28 @@ def test_missing_ffmpeg_is_a_tool_failure(tmp_path, monkeypatch):
 def test_help_says_how_to_read_it():
     code, _, raw, err = skill("waveform", "--help")
     assert code == 0
-    for word in ("--at", "--words", "--out", "harmonics", "noise", "music", "Prints:", "Exits:", "speech", "transcribe --from-json"):
+    for word in ("--at", "--words", "--out", "harmonics", "noise", "music", "Prints:", "Exits:", "speech", "--snap off", "seconds of MEDIA"):
         assert word in raw, word
+
+
+def test_a_late_starting_audio_stream_is_drawn_and_measured_in_one_time(tmp_path):
+    """Sound starting 0.5 s after its picture, burst at 1.2 s of the movie: windows starting before and after the sound begins draw it at the same time, and `speech` agrees."""
+    wav = tone_bursts(tmp_path / "t.wav", [(0.7, 1.7)], 4)
+    movie = tmp_path / "late.mov"
+    ffmpeg("-f", "lavfi", "-i", "color=c=gray:s=320x180:r=30:d=4.5", "-itsoffset", "0.5", "-i", str(wav), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", str(movie))
+    for start, end in ((0.1, 4.1), (0.7, 3.7)):
+        code, res, raw, err = run(tmp_path, movie, "--at", f"{start}-{end}")
+        assert code == 0, raw + err
+        w = res["windows"][0]
+        assert w["speech"] == [pytest.approx([1.2, 2.2], abs=0.02)]
+        img = Image.open(res["sheet"]).convert("L")
+        want = expected(1.2, start, end, res["width"])
+        wave = energy_starts(img, *w["y"]["wave"], start, end, res["width"])
+        assert any(abs(x - want) <= 1 for x in wave), (start, wave, want)
+
+
+@pytest.mark.parametrize("at", ["1-1.01", "0-0.05"])
+def test_a_window_too_short_to_draw_is_a_usage_error(tmp_path, at):
+    audio = tone_bursts(tmp_path / "t.wav", [(1.0, 2.0)], 10)
+    code, res, raw, err = run(tmp_path, audio, "--at", at)
+    assert code == 2 and res["error"]

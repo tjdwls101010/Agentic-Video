@@ -37,6 +37,9 @@ _LINE_GAP = 0.7
 _SENTENCE_END = re.compile(r"[.?!…。？！]['\"”’)]*$")
 _MIN_TIMED = 0.9
 _PAST_END = 1.0
+_BEFORE_ZERO = 0.1
+_BACKWARDS = 1.0
+_MANY_WORDS = 4
 
 
 @dataclass
@@ -96,12 +99,11 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _provider_message(data: bytes, key: str) -> str:
-    text = data.decode(errors="replace")
+    text = data.decode(errors="replace").replace(key, "<key>")
     try:
-        message = json.loads(text)["error"]["message"]
+        return str(json.loads(text)["error"]["message"])
     except (ValueError, KeyError, TypeError):
-        message = text[:300]
-    return str(message).replace(key, "<key>")
+        return text[:300]
 
 
 def _wait(headers, attempt: int) -> float:
@@ -109,7 +111,7 @@ def _wait(headers, attempt: int) -> float:
         wait = float(headers.get("Retry-After", ""))
     except ValueError:
         wait = 2.0 ** attempt
-    return min(max(wait, 0.0), _MAX_WAIT)
+    return min(max(wait, 0.0), _MAX_WAIT) if math.isfinite(wait) else 2.0 ** attempt
 
 
 def _post(body: dict, key: str, timeout: float) -> dict:
@@ -199,7 +201,7 @@ def _lines(words: list[RawWord]) -> list[Segment]:
 
 
 def _check_times(text: str, entries: list[dict], duration: float | None) -> None:
-    """Some routes return a full `text` with a word list that is cut short or runs past the audio. These two checks catch that whatever the model is, and passing them does not prove the times."""
+    """Some routes return a full `text` with a word list that is cut short or runs past the audio, and a reply can carry times no speech could have. These checks catch that whatever the model is, and passing them does not prove the times."""
     of = len(text.split())
     have = sum(len(str(w.get("word", "")).split()) for w in entries)  # a named sound such as `[gentle music]` is one entry and two words of text
     try_chunk = f"Transcribe it again with --engine openrouter --chunk {round(duration / 2)} and halve that until a reply passes" if duration else "Transcribe it again with --engine openrouter and a short --chunk"
@@ -207,7 +209,15 @@ def _check_times(text: str, entries: list[dict], duration: float | None) -> None
         raise ToolError(f"the reply's text has {of} words and only {have} have times, so its word list was cut short. {try_chunk}")
     last = max((_number(w["end"]) for w in entries), default=0.0)
     if duration and last > duration + _PAST_END:
-        raise ToolError(f"the reply puts a word at {last:.1f} s in {duration:.1f} s of audio, so its times are broken. {try_chunk}")
+        raise ToolError(f"the reply puts a word at {last:.1f} s in {duration:.1f} s of audio, so its times are broken or it belongs to other media. {try_chunk}")
+    starts = [_number(w["start"]) for w in entries]
+    ends = [_number(w["end"]) for w in entries]
+    if any(t < -_BEFORE_ZERO for t in starts):
+        raise ToolError(f"the reply has a word before the start of the audio, so its times are broken. {try_chunk}")
+    if any(b <= a - _BACKWARDS for a, b in zip(starts, starts[1:])):
+        raise ToolError(f"the reply's word times run backwards, so they are broken. {try_chunk}")
+    if len(entries) >= _MANY_WORDS and 2 * sum(e <= s for s, e in zip(starts, ends)) > len(entries):
+        raise ToolError(f"most of the reply's words have no length, so its times are broken. {try_chunk}")
 
 
 def _parse(d, duration: float | None) -> Recognition:
@@ -216,7 +226,8 @@ def _parse(d, duration: float | None) -> Recognition:
     entries = d.get("words") or []
     if not isinstance(entries, list):
         raise ValueError("`words` is not a list")
-    seconds = float(d["duration"]) if d.get("duration") else duration
+    said = float(d["duration"]) if d.get("duration") else None
+    seconds = min(said, duration) if said and duration else said or duration  # a reply does not get to vouch for its own length
     _check_times(str(d.get("text") or ""), entries, seconds)
     words, events = [], []
     for w in entries:
@@ -244,7 +255,7 @@ def read(raw: dict | Path, duration: float | None = None) -> Recognition:
 def merge(parts: list[tuple[float, float, dict]]) -> dict:
     """Replies to consecutive pieces of one file, each `(start, end, reply)` in file seconds, as one reply over the whole file: times shifted, text joined, length and cost added. It reads back through `read` like a single reply."""
     def shifted(entry: dict, by: float) -> dict:
-        return {**entry, "start": round(entry["start"] + by, 6), "end": round(entry["end"] + by, 6)}
+        return {**entry, **{k: round(float(entry[k]) + by, 6) for k in ("start", "end") if k in entry}}
 
     merged = {k: v for k, v in parts[0][2].items() if k not in ("words", "segments", "usage")}
     merged["text"] = " ".join(t for t in (str(r.get("text") or "").strip() for _, _, r in parts) if t)

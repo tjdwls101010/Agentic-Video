@@ -7,7 +7,7 @@ from pathlib import Path
 
 from video.errors import ToolError
 
-from .probe import tool
+from .probe import FROM_CONTAINER_START, tool
 
 
 def extract_frame(path: Path, seconds: float, out: Path, width: int) -> Path:
@@ -22,7 +22,7 @@ def extract_frame(path: Path, seconds: float, out: Path, width: int) -> Path:
 def extract_audio(path: Path, out: Path, start: float | None = None, end: float | None = None) -> Path:
     """The first audio stream as mono 16 kHz Opus at 24 kbit/s in an Ogg file, small enough to send whole: all of it, or from `start` to `end` seconds. Seeking decodes, so a piece starts where it says."""
     cmd = [tool("ffmpeg"), "-v", "error", "-y", *(["-ss", f"{start:.6f}"] if start else []), "-i", str(path), *(["-t", f"{end - (start or 0):.6f}"] if end is not None else []),
-           "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "24k", str(out)]
+           "-map", "0:a:0", "-vn", "-af", FROM_CONTAINER_START, "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "24k", str(out)]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
     if r.returncode != 0 or not Path(out).exists():
         raise ToolError(f"ffmpeg could not prepare the audio of {path}", r.stderr, cmd)

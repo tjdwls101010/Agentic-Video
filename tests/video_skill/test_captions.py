@@ -517,3 +517,14 @@ def test_help_gives_both_profiles_with_their_source():
     for word in ("--rules", "--transcript", "Netflix", "42", "20 characters", "before", "violations"):
         assert word in raw, word
     assert "Use it instead of transcript.createCaptions" not in raw
+
+
+def test_korean_rules_keep_a_break_after_a_standalone_english_conjunction():
+    """Only the English rules move the break before the conjunction, so a Korean caption quoting English lays out as it did. After `and`: 13 | 13.5 units, a clause break (0.5) and nearly even (0.025), cost 0.525. After `하고`: 11 | 15.5, also a clause break, cost 0.725."""
+    assert captions.layout(words(even("오늘 편집 이야기를 하고 and 다음에 자막을 봅니다 정말로", 0.0, 4.0)), KO, FPS)[0].lines == ["오늘 편집 이야기를 하고 and", "다음에 자막을 봅니다 정말로"]
+
+
+def test_korean_rules_stop_reading_a_word_merely_ending_in_a_conjunction_as_a_clause_end():
+    """Whole-word match under both profiles: `understand` is no break of its own in Korean text either."""
+    lines = captions.layout(words(even("여러분 모두 understand 이야기를 오늘 자막으로 함께 봅니다", 0.0, 4.0)), KO, FPS)[0].lines
+    assert not lines[0].endswith("understand")

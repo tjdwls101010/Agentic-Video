@@ -28,14 +28,14 @@ HARD_PAUSE = 1.5
 CUE_COST = 3.0
 
 
-def _boundary_cost(ws: list[Word], j: int) -> float:
+def _boundary_cost(ws: list[Word], j: int, rules: Rules) -> float:
     """Cost of ending a cue after word j (0-based)."""
     w, nxt = ws[j], ws[j + 1]
     if is_sentence_end(w.text):
         return 0.0
     gap = nxt.start - w.end
     cost = 6.0
-    if is_clause_end(w.text, nxt.text):
+    if is_clause_end(w.text, nxt.text, rules):
         cost = 2.0
     if gap >= 0.3 or (w.clip is not None and nxt.clip != w.clip):
         cost = min(cost, 1.0)
@@ -60,7 +60,7 @@ def split_lines(texts: list[str], rules: Rules, fits: Fits) -> tuple[list[str], 
         ut, ub = units(top), units(bottom)
         if ut > rules.max_units or ub > rules.max_units or not fits(top) or not fits(bottom):
             continue
-        quality = 0.0 if is_sentence_end(texts[k - 1]) else 0.5 if is_clause_end(texts[k - 1], texts[k]) else 2.0
+        quality = 0.0 if is_sentence_end(texts[k - 1]) else 0.5 if is_clause_end(texts[k - 1], texts[k], rules) else 2.0
         balance = 1.0 + (ut - ub) * 0.15 if ut > ub else (ub - ut) * 0.05
         cost = quality + balance
         if best is None or cost < best[1]:
@@ -86,7 +86,7 @@ def _cue_cost(ws: list[Word], i: int, j: int, rules: Rules, fits: Fits):
     if speed > rules.cps:
         cost += min(speed - rules.cps, 20.0) * 0.5
     if j + 1 < len(ws):
-        cost += _boundary_cost(ws, j)
+        cost += _boundary_cost(ws, j, rules)
     return cost, lines
 
 

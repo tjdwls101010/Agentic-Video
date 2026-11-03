@@ -142,8 +142,9 @@ def test_a_recorded_nemotron_reply_has_no_probabilities():
     assert all(w.prob is None for s in rec.segments for w in s.words)
 
 
-def test_a_word_with_no_probability_is_written_without_a_confidence_key(tmp_path, audio):
+def test_a_word_with_no_probability_is_written_without_a_confidence_key(tmp_path):
     """FilmCraft refuses `"confidence": null`, so the key is left out."""
+    audio = tone_bursts(tmp_path / "b.wav", [(1.0, 2.0)], 11)
     code, res, raw, err = run(tmp_path, audio, "--from-json", str(FIXTURES / "say_ko.nemotron.json"), "--item", "1")
     assert code == 0, raw + err
     assert res["has_confidence"] is False
@@ -772,8 +773,9 @@ def test_repeat_works_on_lines_split_from_one_segment(tmp_path, audio):
     assert reasons(res).count("repeat") == 3
 
 
-def test_a_compressed_stretch_is_flagged_once_for_each_stretch(tmp_path, audio):
+def test_a_compressed_stretch_is_flagged_once_for_each_stretch(tmp_path):
     """71 words in 10 s is over 7 a second; 70 is not. Each word is 0.05 s long and 0.14 s apart, 70 fit in 9.8 s."""
+    audio = tone_bursts(tmp_path / "b.wav", [(1.0, 2.0)], 120)
     many = [(f"w{i}", 100 + i * 0.14, 100 + i * 0.14 + 0.05, {"confidence": 0.9}) for i in range(72)]
     code, res, raw, err = from_json(tmp_path, audio, reply(many, duration=200))
     assert code == 0, raw + err
@@ -781,7 +783,8 @@ def test_a_compressed_stretch_is_flagged_once_for_each_stretch(tmp_path, audio):
     assert len(flagged) == 1 and flagged[0]["start_s"] == 100.0
 
 
-def test_seven_words_a_second_is_not_compressed(tmp_path, audio):
+def test_seven_words_a_second_is_not_compressed(tmp_path):
+    audio = tone_bursts(tmp_path / "b.wav", [(1.0, 2.0)], 120)
     even = [(f"w{i}", 100 + i * 0.143, 100 + i * 0.143 + 0.05, {"confidence": 0.9}) for i in range(70)]
     code, res, raw, err = from_json(tmp_path, audio, reply(even, duration=200))
     assert code == 0, raw + err
@@ -867,3 +870,108 @@ def test_real_openrouter_round_trip(tmp_path, monkeypatch):
     text = " ".join(w["text"] for w in words)
     assert "편집" in text and "자막" in text
     assert abs(words[0]["start"] / TICKS - edges[0][0]) < 0.25
+
+
+# -- review findings ---------------------------------------------------------------------------------------------------------------------------
+
+def test_a_key_past_the_truncation_point_of_a_message_does_not_leak_in_part(tmp_path, audio, provider):
+    provider.script = [(400, {}, ("x" * 270 + FAKE_KEY + "y" * 50).encode())]
+    code, res, raw, err = run(tmp_path, audio, "--engine", "openrouter")
+    assert code == 2
+    assert FAKE_KEY[:8] not in raw + err
+
+
+def test_a_key_in_the_environment_does_not_reach_the_local_engines_packages(tmp_path, audio, monkeypatch):
+    """`uvx mlx_whisper` runs third-party code with no use for the key. A stand-in uvx records what it was given."""
+    seen = tmp_path / "seen"
+    fake = tmp_path / "bin" / "uvx"
+    fake.parent.mkdir()
+    fake.write_text(f'#!/bin/sh\nenv > "{seen}"\nexit 1\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
+    code, *_ = run(tmp_path, audio, "--engine", "local")
+    assert code == 1
+    assert "OPENROUTER_API_KEY" not in seen.read_text()
+
+
+def test_a_retry_after_that_is_not_a_number_does_not_crash(tmp_path, audio, provider):
+    provider.script = [(429, {"Retry-After": "nan"}, {}), OK_REPLY]
+    code, res, raw, err = run(tmp_path, audio, "--engine", "openrouter")
+    assert code == 0, raw + err
+
+
+def test_an_explicit_chunk_cannot_turn_off_the_size_limit():
+    assert transcribe.chunk_limit(7200.0, 30_000_000, 1000.0) == pytest.approx(540.0)
+    assert transcribe.chunk_limit(100.0, 30_000_000, 1000.0) == 100.0
+    assert transcribe.chunk_limit(7200.0, 1_000_000, 1000.0) == 7200.0
+    assert transcribe.chunk_limit(None, 1_000_000, 1000.0) is None
+    assert transcribe.chunk_limit(None, 30_000_000, 1000.0) == pytest.approx(540.0)
+
+
+def test_a_sliver_at_the_end_stays_with_the_last_piece():
+    """A 10 ms piece is its own request, and a provider may refuse audio that short."""
+    assert transcribe.plan_chunks(50.01, [], limit=50.0) == ([(0.0, 50.01)], 0)
+    assert transcribe.plan_chunks(101.0, [], limit=50.0) == ([(0.0, 50.0), (50.0, 101.0)], 1)
+
+
+@pytest.mark.parametrize("words", [
+    [("a", -5.0, -4.0), ("b", 1.0, 2.0)],
+    [("a", 30.0, 30.5), ("b", 29.0, 29.5), ("c", 28.0, 28.5)],
+    [(f"w{i}", 0.0, 0.0) for i in range(20)],
+], ids=["negative", "backwards", "all at zero"])
+def test_a_reply_with_impossible_times_is_refused(words):
+    with pytest.raises(ToolError, match="times"):
+        openrouter.read(reply(words, duration=100))
+
+
+def test_neighbours_that_overlap_a_little_and_scattered_zero_length_words_pass():
+    """Measured replies have both: Scribe has 233 zero-length words in 14,525, and a word can start just before the last one ended."""
+    words = [("a", 1.0, 1.5), ("b", 1.4, 1.8), ("c", 2.0, 2.0), ("d", 2.1, 2.5), ("e", 2.6, 3.0)]
+    assert sum(len(s.words) for s in openrouter.read(reply(words)).segments) == 5
+
+
+def test_a_reply_cannot_vouch_for_its_own_length_against_the_media(tmp_path, audio):
+    """A reply claiming a long duration, or one kept from other media, is held to the media it is being applied to."""
+    code, res, raw, err = from_json(tmp_path, audio, reply([("a", 1.0, 1.5), ("far", 5000.0, 5000.5)], duration=100000))
+    assert code == 1 and "5000" in res["error"]
+    assert not (tmp_path / "t.jsonl").exists()
+
+
+def test_times_given_as_numeric_strings_are_merged_as_numbers():
+    raw = reply([("a", "1.0", "1.5")], duration=3.0)
+    merged = openrouter.merge([(0.0, 3.0, raw), (3.0, 6.0, raw)])
+    assert [w["start"] for w in merged["words"]] == [1.0, 4.0]
+
+
+def test_a_segment_without_times_does_not_break_a_merge():
+    raw = reply([("a", 1.0, 1.5)], duration=3.0)
+    raw["segments"] = [{"id": 0, "text": "a"}]
+    assert openrouter.merge([(0.0, 3.0, raw)])["segments"] == [{"id": 0, "text": "a"}]
+
+
+def late_audio_movie(tmp_path, bursts, total, offset):
+    """A movie whose sound starts `offset` seconds after its picture, with bursts given in container time."""
+    wav = tone_bursts(tmp_path / "late.wav", [(a - offset, b - offset) for a, b in bursts], total - offset)
+    movie = tmp_path / "late.mov"
+    ffmpeg("-f", "lavfi", "-i", f"color=c=gray:s=320x180:r=30:d={total}", "-itsoffset", str(offset), "-i", str(wav), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", str(movie))
+    return movie
+
+
+def decoded_speech(data: str, d: Path, name: str):
+    f = d / name
+    f.write_bytes(base64.b64decode(data))
+    from video import ffmpeg as ff
+    spans = ff.measured_speech(f)
+    f.unlink()
+    return spans
+
+
+def test_every_piece_and_the_measurement_count_from_the_start_of_the_picture(tmp_path, provider):
+    """Sound starting after its picture must not make the first piece and the rest disagree, or words jump at the first cut. Bursts at 1.2 and 3.2 s of the movie; with a limit of 3 s the silence reaches only from 2.2 to 3.0, so the cut is at 2.6 and the second burst starts 0.6 s into its piece."""
+    movie = late_audio_movie(tmp_path, [(1.2, 2.2), (3.2, 4.2)], 5, 0.5)
+    provider.script = [chunk_reply]
+    code, res, raw, err = run(tmp_path, movie, "--engine", "openrouter", "--chunk", "3")
+    assert code == 0, raw + err
+    bodies = sorted((r["body"]["input_audio"]["data"] for r in provider.requests), key=len)
+    starts = sorted(decoded_speech(b, tmp_path / ".", f"p{i}.ogg")[0][0] for i, b in enumerate(bodies))
+    assert starts == [pytest.approx(0.6, abs=0.05), pytest.approx(1.2, abs=0.05)]

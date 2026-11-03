@@ -12,6 +12,10 @@ from pathlib import Path
 from video.errors import InputError, ToolError
 
 
+# Sound that starts after its picture is padded back to the container's zero, so a time means the same in every measurement, piece and picture here.
+FROM_CONTAINER_START = "aresample=async=1:first_pts=0"
+
+
 def tool(name: str) -> str:
     found = shutil.which(name)
     if not found:

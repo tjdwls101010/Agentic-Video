@@ -13,11 +13,12 @@ from video.timecode import Rate
 
 from .sheet import WIDTH, SPECTRUM_H, WAVE_H, Row, Window, compose
 
-__all__ = ["sheet", "MAX_WINDOWS", "MAX_WINDOW_SECONDS", "MAX_SOURCES"]
+__all__ = ["sheet", "MAX_WINDOWS", "MIN_WINDOW_SECONDS", "MAX_WINDOW_SECONDS", "MAX_SOURCES"]
 
 MAX_WINDOWS = 8
 MAX_WINDOW_SECONDS = 60
 MAX_SOURCES = 4
+MIN_WINDOW_SECONDS = 0.1
 PAST_END = 0.05
 
 
@@ -43,6 +44,8 @@ def _windows(at: list[str], rate: Rate, seconds: float | None) -> list[tuple[flo
         a, b = _time(parts[0], rate), _time(parts[1], rate)
         if not (math.isfinite(a) and math.isfinite(b) and 0 <= a < b):
             raise InputError(f"--at: {text!r} must start before it ends")
+        if b - a < MIN_WINDOW_SECONDS:
+            raise InputError(f"--at: {text!r} is shorter than {MIN_WINDOW_SECONDS} s, too short to draw")
         if b - a > MAX_WINDOW_SECONDS:
             raise InputError(f"--at: {text!r} is {b - a:.0f} s; a window shows at most {MAX_WINDOW_SECONDS} s, beyond which words stop being readable")
         if seconds is not None and b > seconds + PAST_END:

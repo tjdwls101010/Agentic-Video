@@ -63,7 +63,9 @@ def recognise(media: Path, out_dir: Path, language: str | None, model: str) -> P
            "--output-format", "json", "--output-dir", str(out_dir), "--condition-on-previous-text", "False", "--verbose", "False"]
     if language:
         cmd += ["--language", language]
-    r = subprocess.run(cmd, stdout=sys.stderr, stderr=subprocess.PIPE, text=True, env=dict(os.environ))
+    # 성진: Whisper counts from the first audio sample, so sound that starts after its picture leaves its words early by that offset, against the container time everything else here uses; handle it if such a file turns up.
+    env = {k: v for k, v in os.environ.items() if k != "OPENROUTER_API_KEY"}  # third-party code with no use for it
+    r = subprocess.run(cmd, stdout=sys.stderr, stderr=subprocess.PIPE, text=True, env=env)
     produced = out_dir / (Path(media).stem + ".json")
     if r.returncode != 0 or not produced.exists():
         raise ToolError(f"mlx-whisper failed on {media}", r.stderr, cmd)

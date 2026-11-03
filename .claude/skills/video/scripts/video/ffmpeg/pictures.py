@@ -7,12 +7,12 @@ from pathlib import Path
 
 from video.errors import ToolError
 
-from .probe import tool
+from .probe import FROM_CONTAINER_START, tool
 
 
 def _picture(path: Path, start: float, end: float, draw: str, out: Path) -> Path:
     seconds = end - start
-    graph = f"[0:a:0]aformat=channel_layouts=mono,aresample=48000,apad=whole_dur={seconds:.6f},{draw}[v]"
+    graph = f"[0:a:0]{FROM_CONTAINER_START},aformat=channel_layouts=mono,aresample=48000,apad=whole_dur={seconds:.6f},{draw}[v]"
     cmd = [tool("ffmpeg"), "-v", "error", "-y", "-ss", f"{start:.6f}", "-t", f"{seconds:.6f}", "-i", str(path), "-filter_complex", graph, "-map", "[v]", "-frames:v", "1", str(out)]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if r.returncode != 0 or not Path(out).exists():

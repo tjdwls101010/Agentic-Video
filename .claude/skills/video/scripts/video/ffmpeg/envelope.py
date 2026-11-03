@@ -9,7 +9,7 @@ from pathlib import Path
 
 from video.errors import InputError, ToolError
 
-from .probe import tool
+from .probe import FROM_CONTAINER_START, tool
 
 RATE = 16000
 FLOOR_DB = -100.0
@@ -18,7 +18,7 @@ MEASURE_HOP = 0.01
 
 def envelope(path: Path, hop: float = 0.01) -> list[float]:
     """One value per `hop` seconds from the start; digital silence reads as -100 dBFS."""
-    cmd = [tool("ffmpeg"), "-v", "error", "-i", str(path), "-map", "0:a:0", "-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"]
+    cmd = [tool("ffmpeg"), "-v", "error", "-i", str(path), "-map", "0:a:0", "-af", FROM_CONTAINER_START, "-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"]
     r = subprocess.run(cmd, capture_output=True, timeout=3600)
     if r.returncode != 0:
         msg = r.stderr.decode(errors="replace")
