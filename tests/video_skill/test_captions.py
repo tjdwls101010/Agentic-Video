@@ -715,3 +715,11 @@ def test_a_kept_cue_too_short_and_too_fast_is_reported_not_changed(tmp_path):
     cues, res = cues_run(tmp_path, "1\n00:00:01,000 --> 00:00:01,500\nhello\nworld\n", "--rules", "en")
     assert cues == [(1.0, 1.5, ["hello", "world"])]
     assert {(v["kind"], v["value"]) for v in res["violations"]} == {("cps", 22.0), ("short", 0.5)}
+
+
+def test_cues_with_nothing_left_to_show_are_refused_and_write_nothing(tmp_path):
+    """`--help` promises exit 2 for an empty --cues file; a file of nothing but end punctuation is one under Korean rules."""
+    src = tmp_path / "in.srt"
+    src.write_text("1\n00:00:01,000 --> 00:00:03,000\n.\n", encoding="utf-8")
+    code, res, raw, err = skill("captions", "--cues", str(src), "--out", str(tmp_path / "o.srt"), cwd=tmp_path)
+    assert code == 2 and "error" in res and not (tmp_path / "o.srt").exists()

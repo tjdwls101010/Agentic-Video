@@ -59,6 +59,8 @@ def make(out: Path, *, project: Path | None = None, bridge: str | None = None, c
         notes.append(f"no installed face of {style['font']!r} found; line widths estimated, so check a render (frames --project)")
     fr = Fraction(rate.num, rate.den)
     result = relayout(subrip.read(cues_file), rules, fr, m.fits) if cues_file is not None else layout(words, rules, fr, m.fits)
+    if not result:
+        raise InputError("no cue has any text left once end punctuation is removed; nothing was written")
     subrip.write(result, out)
     # in the app, the edit lands in the open project and saving it stays the user's call (an untitled project would open a save dialog)
     where = f"--project {shlex.quote(str(project))} --save" if project is not None else f"--bridge {shlex.quote(bridge)}" if bridge else "--project <P.fcproj> --save"
