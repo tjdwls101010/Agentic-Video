@@ -5,6 +5,6 @@ from .envelope import envelope, measured_speech, speech_spans
 from .extract import extract_audio, extract_frame
 from .loudness import Loudness, loudness
 from .pictures import spectrum_picture, wave_picture
-from .probe import AudioStream, Media, VideoStream, installed, probe, tool
+from .probe import AudioStream, Media, VideoStream, probe, status, tool
 
-__all__ = ["probe", "Media", "VideoStream", "AudioStream", "loudness", "Loudness", "extract_frame", "extract_audio", "envelope", "speech_spans", "measured_speech", "wave_picture", "spectrum_picture", "tool", "installed", "AlphaWriter"]
+__all__ = ["probe", "Media", "VideoStream", "AudioStream", "loudness", "Loudness", "extract_frame", "extract_audio", "envelope", "speech_spans", "measured_speech", "wave_picture", "spectrum_picture", "tool", "status", "AlphaWriter"]

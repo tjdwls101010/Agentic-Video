@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from video import doctor, filmcraft, openrouter, whisper
+from video import doctor, ffmpeg as ffmpeg_system, filmcraft, openrouter, whisper
 from support import CLI, skill
 
 FAKE_KEY = "sk-test-doctor-0123456789-SECRET"
@@ -68,6 +68,19 @@ def test_a_missing_required_tool_fails_with_a_command_to_fix_it(name, field):
     r = doctor.judge(facts(**{field: False}))
     assert r["ok"] is False and check(r, name)["ok"] is False
     assert r["next"] and any("brew install" in n for n in r["next"])
+
+
+def test_a_tool_that_is_there_but_does_not_run_fails_with_its_reason_and_a_reinstall():
+    r = doctor.judge(facts(ffmpeg=False, broken={"ffmpeg": "Library not loaded: libopus.0.dylib"}))
+    assert r["ok"] is False and check(r, "ffmpeg")["ok"] is False
+    assert "does not run" in check(r, "ffmpeg")["value"] and "libopus" in check(r, "ffmpeg")["value"]
+    assert r["next"] == ["brew reinstall ffmpeg"]
+
+
+def test_one_tool_missing_and_one_broken_gets_both_commands():
+    r = doctor.judge(facts(ffmpeg=False, ffprobe=False, broken={"ffprobe": "exit 1"}))
+    assert check(r, "ffmpeg")["value"] == "not installed"
+    assert r["next"] == ["brew install ffmpeg", "brew reinstall ffmpeg"]
 
 
 @pytest.mark.parametrize("over", [{"whisper_cached": False}, {"key_source": "none"}, {"chrome": False}])
@@ -127,6 +140,35 @@ def test_the_real_entry_point_agrees_with_this_machine(monkeypatch):
     assert check(res, "openrouter_key")["value"] == "env"
     assert check(res, "ffmpeg")["ok"] is (shutil.which("ffmpeg") is not None)
     assert check(res, "uvx")["ok"] is (shutil.which("uvx") is not None)
+
+
+@pytest.mark.parametrize("body, reason", [("echo 'Library not loaded: libopus' >&2; exit 134", "libopus"), ("exit 3", "exit 3")])
+def test_a_tool_that_cannot_run_fails_through_the_entry_point(tmp_path, monkeypatch, body, reason):
+    """The tool is found on PATH, which is all `which` can see; only running it shows the dynamic linker's failure."""
+    fake = tmp_path / "ffmpeg"
+    fake.write_text(f"#!/bin/sh\n{body}\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    code, res, raw, err = skill("doctor")
+    assert code == 1 and res["ok"] is False and check(res, "ffmpeg")["ok"] is False
+    assert reason in check(res, "ffmpeg")["value"]
+    assert "brew reinstall ffmpeg" in res["next"]
+
+
+def test_a_missing_tool_says_install_through_the_entry_point(tmp_path, monkeypatch):
+    """A PATH with only what the rest of doctor can do without, so neither ffmpeg nor ffprobe is found."""
+    monkeypatch.setenv("PATH", str(tmp_path))
+    code, res, raw, err = skill("doctor")
+    assert code == 1 and check(res, "ffmpeg")["value"] == "not installed" and "brew install ffmpeg" in res["next"]
+    assert "brew reinstall ffmpeg" not in res["next"]
+
+
+def test_a_tool_that_hangs_is_reported_as_timed_out(tmp_path, monkeypatch):
+    fake = tmp_path / "ffmpeg"
+    fake.write_text("#!/bin/sh\nexec sleep 30\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    assert "timed out" in ffmpeg_system.status(timeout=0.3)["ffmpeg"]
 
 
 def test_a_mismatched_cli_exits_one_through_the_entry_point(tmp_path, monkeypatch):
