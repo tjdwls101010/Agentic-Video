@@ -277,7 +277,7 @@ def test_source_options_are_exclusive(tmp_path):
 def test_help_owns_the_numbers():
     code, out, raw, err = skill("captions", "--help")
     assert code == 0
-    for word in ("16", "12", "5/6", "7", "0.5", "--font", "--size", "--margin", "--anchor", "--cues", "captions.import", "captions.setStyle", "Prints:", "Exits:", "Netflix"):
+    for word in ("16", "12", "5/6", "7", "0.5", "--font", "--size", "--margin", "--anchor", "--cues", "--units", "captions.import", "captions.setStyle", "Prints:", "Exits:", "Netflix"):
         assert word in raw, word
 
 
