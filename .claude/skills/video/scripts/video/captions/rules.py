@@ -35,7 +35,7 @@ Rules, --rules en (Netflix English Timed Text Style Guide and General Requiremen
   a line or cue breaks after punctuation and before a conjunction (and, but, so, because) rather than after it
   reading speed at most 20 characters a second, the adult-program limit; each cue lasts 5/6 s to 7 s; the 2-frame chaining is this tool's, not the guide's
   punctuation stays at the end of a line; three dots become the single character …; Mr., Mrs., Ms., Dr., St., U.S., Jr. and Sr. do not end a sentence
-Under both: a speaker turn shorter than the shortest cue cannot be a caption of its own, so it does not end a cue and its words join the cue around them."""
+Under both: a speaker turn shorter than the shortest cue cannot be a caption of its own, so it does not end a cue and its words join the cue around them. A capital and a dot is read as an initial (Donald J. Trump), so it does not end a sentence, even a real one (I chose A.)."""
 
 
 def units(text: str) -> float:
@@ -70,10 +70,12 @@ _CLAUSE_END = re.compile(r"([,;:，、]|(?:고|서|며|면서|는데|은데|ㄴ�
 _CONJUNCTIONS = {"and", "but", "so", "because"}
 _SENTENCE_END = re.compile(r"[.?!…。？！]['\"”’)]*$")
 _NOT_SENTENCE_END = {"Mr.", "Mrs.", "Ms.", "Dr.", "St.", "U.S.", "Jr.", "Sr."}
+_INITIAL = re.compile(r"[A-Z]\.")
 
 
 def is_sentence_end(word: str) -> bool:
-    return word not in _NOT_SENTENCE_END and bool(_SENTENCE_END.search(word.replace("...", "…")))
+    # 성진: "I chose A. Next" reads as an initial too, since one word cannot tell it from "Donald J. Trump" and a name in two cues is the worse mistake; change this if layout gets the next word's context to decide with.
+    return word not in _NOT_SENTENCE_END and not _INITIAL.fullmatch(word) and bool(_SENTENCE_END.search(word.replace("...", "…")))
 
 
 def is_clause_end(word: str, next_word: str, rules: Rules) -> bool:

@@ -533,3 +533,36 @@ def test_korean_rules_stop_reading_a_word_merely_ending_in_a_conjunction_as_a_cl
 def test_korean_rules_do_not_read_a_capitalised_conjunction_as_a_clause_end():
     """The Korean rules matched these in lower case only. After `And`: 13 | 13.5 units with no clause break (2.025); after `하고`: 11 | 15.5, a clause break, cost 0.725."""
     assert captions.layout(words(even("오늘 편집 이야기를 하고 And 다음에 자막을 봅니다 정말로", 0.0, 4.0)), KO, FPS)[0].lines == ["오늘 편집 이야기를 하고", "And 다음에 자막을 봅니다 정말로"]
+
+
+# -- initials: a name is not a sentence end ------------------------------------------------------------------------------
+
+def test_an_initial_does_not_end_a_cue_from_a_transcript(tmp_path):
+    """38 characters fit one 42-character line, and nothing but the initial could end the cue early."""
+    t = tmp_path / "t.jsonl"
+    transcript_file(t, even("President Donald J. Trump won the vote.", 0.0, 3.0))
+    code, res, raw, err = skill("captions", "--transcript", str(t), "--rules", "en", "--fps", "30", "--out", str(tmp_path / "o.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    assert [l for _, _, l in parse_srt(tmp_path / "o.srt")] == [["President Donald J. Trump won the vote."]]
+
+
+def test_an_initial_does_not_end_a_cue_from_translated_cues(tmp_path):
+    src = tmp_path / "ko.srt"
+    src.write_text("1\n00:00:00,000 --> 00:00:03,000\n실패한 레임덕 대통령 도널드 J. 트럼프를요!\n", encoding="utf-8")
+    code, res, raw, err = skill("captions", "--cues", str(src), "--fps", "30", "--out", str(tmp_path / "o.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    [(a, b, lines)] = parse_srt(tmp_path / "o.srt")
+    assert " ".join(lines) == "실패한 레임덕 대통령 도널드 J. 트럼프를요!"
+
+
+@pytest.mark.parametrize("rules", [EN, KO])
+def test_a_capital_and_a_dot_counts_as_an_initial_even_at_a_real_sentence_end(rules):
+    """The known cost of the rule: nothing here can tell `I chose A.` from `Donald J.`, and a name in two pieces is the worse mistake."""
+    cues = captions.layout(words(even("I chose A. Next question.", 0.0, 3.0)), rules, FPS)
+    assert len(cues) == 1
+
+
+@pytest.mark.parametrize("rules", [EN, KO])
+def test_a_quoted_initial_still_ends_a_sentence(rules):
+    cues = captions.layout(words(even('He said "J." Then left.', 0.0, 3.0)), rules, FPS)
+    assert len(cues) == 2
