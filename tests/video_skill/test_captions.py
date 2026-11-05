@@ -687,3 +687,31 @@ def test_overlapping_source_cues_stay_whole_and_in_order():
     first, second = captions.relayout([a, b], RULES, FPS)
     assert (first.lines, second.lines) == (a.lines, b.lines)
     assert first.end == 58 / 30 and second.start == 2.0
+
+
+@pytest.mark.parametrize("rules", [RULES, captions.Rules(max_units=4)])
+def test_a_cue_inside_a_longer_one_that_is_laid_out_again_stays_in_its_own_time(rules):
+    """The long cue becomes several around the short one, which starts on its own frame 30 and ends by 3.0 s; every piece of the long one stays within its 10 s, in order."""
+    long = captions.Cue(0.0, 10.0, ["one two three four five six seven eight nine ten"])
+    short = captions.Cue(1.0, 3.0, ["next"])
+    cues = captions.relayout([long, short], rules, FPS)
+    [inner] = [c for c in cues if c.lines == ["next"]]
+    assert inner.start == 1.0 and inner.end <= 3.0
+    assert all(0.0 <= c.start < c.end <= 10.0 for c in cues) and [c.start for c in cues] == sorted(c.start for c in cues)
+    assert " ".join(l for c in cues if c is not inner for l in c.lines) == "one two three four five six seven eight nine ten"
+
+
+def test_a_cue_of_nothing_but_end_punctuation_writes_no_empty_cue(tmp_path):
+    """A line reduced to nothing would write a cue with no text; under English rules the punctuation stays, so the cue does too."""
+    srt = "1\n00:00:01,000 --> 00:00:03,000\n.\n\n2\n00:00:04,000 --> 00:00:06,000\n네\n"
+    cues, res = cues_run(tmp_path, srt)
+    assert [l for _, _, l in cues] == [["네"]] and res["cues"] == 1
+    cues, _ = cues_run(tmp_path, srt, "--rules", "en")
+    assert [l for _, _, l in cues] == [["."], ["네"]]
+
+
+def test_a_kept_cue_too_short_and_too_fast_is_reported_not_changed(tmp_path):
+    """What `--help` says: only the longest time decides whether a cue is laid out again. 11 characters in 0.5 s is 22 a second."""
+    cues, res = cues_run(tmp_path, "1\n00:00:01,000 --> 00:00:01,500\nhello\nworld\n", "--rules", "en")
+    assert cues == [(1.0, 1.5, ["hello", "world"])]
+    assert {(v["kind"], v["value"]) for v in res["violations"]} == {("cps", 22.0), ("short", 0.5)}

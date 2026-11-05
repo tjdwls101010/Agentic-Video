@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from video import doctor, ffmpeg as ffmpeg_system, filmcraft, openrouter, whisper
+from video import doctor, filmcraft, openrouter, whisper
 from support import CLI, skill
 
 FAKE_KEY = "sk-test-doctor-0123456789-SECRET"
@@ -163,12 +163,15 @@ def test_a_missing_tool_says_install_through_the_entry_point(tmp_path, monkeypat
     assert "brew reinstall ffmpeg" not in res["next"]
 
 
-def test_a_tool_that_hangs_is_reported_as_timed_out(tmp_path, monkeypatch):
+def test_a_tool_that_hangs_fails_through_the_entry_point(tmp_path, monkeypatch):
+    """Takes as long as doctor waits for one tool, about 10 s."""
     fake = tmp_path / "ffmpeg"
-    fake.write_text("#!/bin/sh\nexec sleep 30\n")
+    fake.write_text("#!/bin/sh\nexec sleep 60\n")
     fake.chmod(0o755)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
-    assert "timed out" in ffmpeg_system.status(timeout=0.3)["ffmpeg"]
+    code, res, raw, err = skill("doctor")
+    assert code == 1 and res["ok"] is False and "timed out" in check(res, "ffmpeg")["value"]
+    assert "brew reinstall ffmpeg" in res["next"]
 
 
 def test_a_mismatched_cli_exits_one_through_the_entry_point(tmp_path, monkeypatch):

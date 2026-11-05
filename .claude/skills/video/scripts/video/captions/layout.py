@@ -187,7 +187,7 @@ def relayout(cues: list[Cue], rules: Rules, fps, fits: Fits | None = None) -> li
     caps: dict[int, tuple[float, float]] = {}
     for g, c in enumerate(sorted(cues, key=lambda c: c.start)):
         caps[g] = (c.start, c.end)
-        toks = " ".join(c.lines).split()
+        toks = [tok for tok in " ".join(c.lines).split() if clean_line(tok, rules.keep_end_punct)]
         if not toks:
             continue
         weights = [max(units(t), 0.5) for t in toks]
@@ -201,6 +201,7 @@ def relayout(cues: list[Cue], rules: Rules, fps, fits: Fits | None = None) -> li
         laid = [(0, len(own) - 1, lines)] if lines else group(own, rules, fits)
         groups += [(len(words) + i, len(words) + j, ls) for i, j, ls in laid]
         words += own
+    groups.sort(key=lambda laid: words[laid[0]].start)  # source cues can overlap, and time_cues keeps starts in order
     return time_cues(words, groups, rules, Fraction(fps), caps)
 
 
