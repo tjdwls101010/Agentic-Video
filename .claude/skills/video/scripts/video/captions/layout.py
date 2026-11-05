@@ -171,9 +171,19 @@ def layout(words: list[Word], rules: Rules, fps, fits: Fits | None = None, caps:
     return time_cues(ws, group(ws, rules, fits), rules, Fraction(fps), caps)
 
 
+def _own_lines(cue: Cue, rules: Rules, fits: Fits) -> list[str] | None:
+    """The lines this cue was written with, when they and its time already meet the rules; None when it has to be laid out again."""
+    lines = [clean_line(line, rules.keep_end_punct) for line in cue.lines]
+    if len(lines) > rules.lines or cue.end - cue.start > rules.max_s + 1e-6:
+        return None
+    return lines if all(line and units(line) <= rules.max_units and fits(line) for line in lines) else None
+
+
 def relayout(cues: list[Cue], rules: Rules, fps, fits: Fits | None = None) -> list[Cue]:
-    """Cues written elsewhere (a translation) laid out again: each cue's words share its time in proportion to their length, and every new cue stays inside the old cue it came from, on whole frames (a cue too short to read is reported, not stretched)."""
+    """Cues written elsewhere (a translation): one that already meets the rules keeps its lines, and any other is laid out again with its words sharing its time in proportion to their length. Every new cue stays inside the old cue it came from, on whole frames (a cue too short to read is reported, not stretched)."""
+    fits = fits or (lambda line: True)
     words: list[Word] = []
+    groups: list[tuple[int, int, list[str]]] = []
     caps: dict[int, tuple[float, float]] = {}
     for g, c in enumerate(sorted(cues, key=lambda c: c.start)):
         caps[g] = (c.start, c.end)
@@ -182,11 +192,16 @@ def relayout(cues: list[Cue], rules: Rules, fps, fits: Fits | None = None) -> li
             continue
         weights = [max(units(t), 0.5) for t in toks]
         total, t = sum(weights), c.start
+        own: list[Word] = []
         for tok, wgt in zip(toks, weights):
             d = (c.end - c.start) * wgt / total
-            words.append(Word(tok, t, t + d, group=g))
+            own.append(Word(tok, t, t + d, group=g))
             t += d
-    return layout(words, rules, fps, fits, caps)
+        lines = _own_lines(c, rules, fits)
+        laid = [(0, len(own) - 1, lines)] if lines else group(own, rules, fits)
+        groups += [(len(words) + i, len(words) + j, ls) for i, j, ls in laid]
+        words += own
+    return time_cues(words, groups, rules, Fraction(fps), caps)
 
 
 def violations(cues: list[Cue], rules: Rules, fits: Fits | None = None) -> list[dict]:

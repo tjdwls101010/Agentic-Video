@@ -591,3 +591,99 @@ def test_impossible_units_are_usage_errors(tmp_path, value):
     src.write_text("1\n00:00:00,000 --> 00:00:02,000\n좋은 질문이에요.\n", encoding="utf-8")
     code, res, raw, err = skill("captions", "--cues", str(src), "--units", value, "--out", str(tmp_path / "o.srt"), cwd=tmp_path)
     assert code == 2 and res and "error" in res
+
+
+# -- --cues keeps what the writer decided, where it fits ------------------------------------------------------------------
+
+def cues_run(tmp_path, srt, *args):
+    """`captions --cues` at 30 fps on this SubRip text; the written cues and the printed result."""
+    src = tmp_path / "in.srt"
+    src.write_text(srt, encoding="utf-8")
+    code, res, raw, err = skill("captions", "--cues", str(src), "--fps", "30", "--out", str(tmp_path / "o.srt"), *args, cwd=tmp_path)
+    assert code == 0, raw + err
+    return parse_srt(tmp_path / "o.srt"), res
+
+
+def test_cues_keep_a_line_break_the_length_rule_would_move(tmp_path):
+    """10 and 6.5 units, written top-heavy to keep a phrase whole; balance alone would break after 운명의."""
+    cues, res = cues_run(tmp_path, "1\n00:00:10,000 --> 00:00:12,500\n우리 운명의 주도권을\n되찾을 겁니다\n")
+    assert cues == [(10.0, 12.5, ["우리 운명의 주도권을", "되찾을 겁니다"])] and res["violations"] == []
+
+
+def test_cues_keep_two_speakers_on_two_lines_though_one_line_would_hold_them(tmp_path):
+    """15.5 units together, so one line would fit."""
+    cues, _ = cues_run(tmp_path, "1\n00:00:01,000 --> 00:00:03,000\n- 사랑해요, 존\n- 저도 사랑합니다\n")
+    assert cues[0][2] == ["- 사랑해요, 존", "- 저도 사랑합니다"]
+
+
+def test_a_kept_cue_still_loses_end_punctuation_under_korean_rules_and_keeps_it_under_english(tmp_path):
+    cues, _ = cues_run(tmp_path, "1\n00:00:01,000 --> 00:00:03,000\n기억하십시오.\n고맙습니다,\n")
+    assert cues[0][2] == ["기억하십시오", "고맙습니다"]
+    cues, _ = cues_run(tmp_path, "1\n00:00:01,000 --> 00:00:03,000\nThank you,\nGeorgia.\n", "--rules", "en")
+    assert cues[0][2] == ["Thank you,", "Georgia."]
+
+
+def test_a_kept_cue_lands_on_the_frames_inside_its_own_time(tmp_path):
+    """At 30 fps, 1.01 s is frame 30.3 so the first frame inside is 31; 3.99 s is frame 119.7 so the last is 119."""
+    [(a, b, lines)], _ = cues_run(tmp_path, "1\n00:00:01,010 --> 00:00:03,990\n우리 운명의 주도권을\n되찾을 겁니다\n")
+    assert a == round(31 / 30, 3) and b == round(119 / 30, 3)
+    assert lines == ["우리 운명의 주도권을", "되찾을 겁니다"]
+
+
+def test_only_the_cue_that_does_not_fit_is_laid_out_again(tmp_path):
+    """The middle cue has three lines; its 30 units fit no two lines of 16, so it becomes two cues inside its own 4 s."""
+    cues, res = cues_run(tmp_path, "1\n00:00:00,000 --> 00:00:03,000\n우리 운명의 주도권을\n되찾을 겁니다\n\n"
+                                   "2\n00:00:04,000 --> 00:00:08,000\n하지만 기억하십시오.\n조지아 곳곳의\n거실과 뒷마당, 유세장에서\n\n"
+                                   "3\n00:00:09,000 --> 00:00:11,000\n그리고 들어\n보세요\n")
+    assert cues[0] == (0.0, 3.0, ["우리 운명의 주도권을", "되찾을 겁니다"])
+    assert cues[-1] == (9.0, 11.0, ["그리고 들어", "보세요"])
+    middle = cues[1:-1]
+    assert len(middle) == 2 and all(len(l) <= 2 and all(captions.units(x) <= 16 for x in l) for _, _, l in middle)
+    assert middle[0][0] == 4.0 and middle[-1][1] <= 8.0
+    assert " ".join(x for _, _, l in middle for x in l).replace(".", "").replace(",", "") == "하지만 기억하십시오 조지아 곳곳의 거실과 뒷마당 유세장에서"
+
+
+def test_cue_over_the_longest_time_is_laid_out_again_though_its_lines_fit(tmp_path):
+    cues, _ = cues_run(tmp_path, "1\n00:00:00,000 --> 00:00:09,000\n이번 선거에 온 마음을 쏟은\n모든 자원봉사자 여러분\n")
+    assert len(cues) >= 2 and all(b - a <= 7.0 for a, b, _ in cues) and cues[-1][1] <= 9.0
+    assert " ".join(x for _, _, l in cues for x in l) == "이번 선거에 온 마음을 쏟은 모든 자원봉사자 여러분"
+
+
+def test_cue_of_exactly_the_longest_time_is_kept_and_a_longer_max_keeps_more(tmp_path):
+    seven = "1\n00:00:00,000 --> 00:00:07,000\n우리 운명의 주도권을\n되찾을 겁니다\n"
+    assert cues_run(tmp_path, seven)[0] == [(0.0, 7.0, ["우리 운명의 주도권을", "되찾을 겁니다"])]
+    nine = seven.replace("00:00:07,000", "00:00:09,000")
+    assert cues_run(tmp_path, nine, "--max", "10")[0] == [(0.0, 9.0, ["우리 운명의 주도권을", "되찾을 겁니다"])]
+
+
+def test_lines_and_units_decide_what_fits(tmp_path):
+    """The first line is 17.5 units: over the Korean 16, within --units 18. --lines 1 refuses any two-line cue."""
+    two = "1\n00:00:00,000 --> 00:00:03,000\n가나다라 마바사아 자차카타 파하가나\n차타\n"
+    assert all(captions.units(x) <= 16 for _, _, l in cues_run(tmp_path, two)[0] for x in l)
+    assert cues_run(tmp_path, two, "--units", "18")[0][0][2] == ["가나다라 마바사아 자차카타 파하가나", "차타"]
+    assert all(len(l) == 1 for _, _, l in cues_run(tmp_path, "1\n00:00:00,000 --> 00:00:03,000\n고맙습니다\n조지아\n", "--lines", "1")[0])
+
+
+def test_a_line_wider_than_the_burn_in_is_not_kept():
+    """10 units fit here and 9 do not, measured by the width predicate rather than the unit count."""
+    cue = captions.Cue(0.0, 3.0, ["우리 운명의 주도권을", "되찾을 겁니다"])
+    assert captions.relayout([cue], RULES, FPS, fits=lambda line: captions.units(line) <= 10)[0].lines == cue.lines
+    laid = captions.relayout([cue], RULES, FPS, fits=lambda line: captions.units(line) <= 9)
+    assert all(captions.units(l) <= 9 for c in laid for l in c.lines) and " ".join(l for c in laid for l in c.lines) == "우리 운명의 주도권을 되찾을 겁니다"
+
+
+def test_kept_cues_that_nearly_touch_are_chained_inside_their_own_times():
+    """Written touching: the first gives way 2 frames (88/30) so the chain's gap holds, and the second starts where it was written."""
+    a = captions.Cue(0.0, 3.0, ["우리 운명의", "주도권을"])
+    b = captions.Cue(3.0, 5.0, ["되찾을", "겁니다"])
+    first, second = captions.relayout([a, b], RULES, FPS)
+    assert first.end == 88 / 30 and second.start == 3.0 and first.lines == a.lines and second.lines == b.lines
+
+
+def test_overlapping_source_cues_stay_whole_and_in_order():
+    """Interleaving their words would scatter both sentences; the earlier cue gives way at the later one's start, less the 2-frame gap."""
+    a = captions.Cue(0.0, 4.0, ["우리 운명의", "주도권을"])
+    b = captions.Cue(2.0, 5.0, ["되찾을", "겁니다"])
+    first, second = captions.relayout([a, b], RULES, FPS)
+    assert (first.lines, second.lines) == (a.lines, b.lines)
+    assert first.end == 58 / 30 and second.start == 2.0
