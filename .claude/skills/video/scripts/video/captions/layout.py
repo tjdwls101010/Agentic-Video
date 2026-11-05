@@ -179,6 +179,12 @@ def _own_lines(cue: Cue, rules: Rules, fits: Fits) -> list[str] | None:
     return lines if all(line and units(line) <= rules.max_units and fits(line) for line in lines) else None
 
 
+def _frame_time(t: float, f: float) -> float:
+    """SubRip holds whole milliseconds, so a time within half of one of a frame is that frame."""
+    nearest = round(t * f) / f
+    return nearest if abs(t - nearest) <= 0.0005 + 1e-9 else t
+
+
 def relayout(cues: list[Cue], rules: Rules, fps, fits: Fits | None = None) -> list[Cue]:
     """Cues written elsewhere (a translation): one that already meets the rules keeps its lines, and any other is laid out again with its words sharing its time in proportion to their length. Every new cue stays inside the old cue it came from, on whole frames (a cue too short to read is reported, not stretched)."""
     fits = fits or (lambda line: True)
@@ -186,6 +192,7 @@ def relayout(cues: list[Cue], rules: Rules, fps, fits: Fits | None = None) -> li
     groups: list[tuple[int, int, list[str]]] = []
     caps: dict[int, tuple[float, float]] = {}
     for g, c in enumerate(sorted(cues, key=lambda c: c.start)):
+        c = replace(c, start=_frame_time(c.start, float(fps)), end=_frame_time(c.end, float(fps)))
         caps[g] = (c.start, c.end)
         toks = [tok for tok in " ".join(c.lines).split() if clean_line(tok, rules.keep_end_punct)]
         if not toks:

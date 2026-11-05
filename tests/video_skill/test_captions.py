@@ -723,3 +723,22 @@ def test_cues_with_nothing_left_to_show_are_refused_and_write_nothing(tmp_path):
     src.write_text("1\n00:00:01,000 --> 00:00:03,000\n.\n", encoding="utf-8")
     code, res, raw, err = skill("captions", "--cues", str(src), "--out", str(tmp_path / "o.srt"), cwd=tmp_path)
     assert code == 2 and "error" in res and not (tmp_path / "o.srt").exists()
+
+
+def test_a_time_a_frame_rounded_to_a_millisecond_stays_on_that_frame(tmp_path):
+    """At 30 fps frame 32 is 1.0667 s, written 1,067, and frame 100 is 3.3333 s, written 3,333: the first lies just after its frame and the second just before, and neither is a reason to give up a frame."""
+    cues, _ = cues_run(tmp_path, "1\n00:00:01,067 --> 00:00:03,333\n우리 운명의 주도권을\n되찾을 겁니다\n")
+    assert cues == [(1.067, 3.333, ["우리 운명의 주도권을", "되찾을 겁니다"])]
+
+
+@pytest.mark.parametrize("fps", ["23.976", "29.97", "30"])
+def test_running_cues_again_on_their_own_output_changes_nothing(tmp_path, fps):
+    """Reading the SubRip, correcting it and running it again is the intended way to work, so a second run may not cost time or add violations."""
+    src = tmp_path / "in.srt"
+    src.write_text("".join(f"{n}\n00:00:{a},000 --> 00:00:{b},000\n우리 운명의 주도권을\n되찾을 겁니다\n\n" for n, (a, b) in enumerate([("01", "03"), ("03", "05"), ("07", "14"), ("20", "21")], 1)), encoding="utf-8")
+    run = lambda i, o: skill("captions", "--cues", str(i), "--fps", fps, "--out", str(o), cwd=tmp_path)
+    code, first, raw, err = run(src, tmp_path / "1.srt")
+    assert code == 0, raw + err
+    code, second, raw, err = run(tmp_path / "1.srt", tmp_path / "2.srt")
+    assert code == 0, raw + err
+    assert (tmp_path / "2.srt").read_text() == (tmp_path / "1.srt").read_text() and second["violations"] == first["violations"]
