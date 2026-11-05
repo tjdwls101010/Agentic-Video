@@ -277,7 +277,7 @@ def test_source_options_are_exclusive(tmp_path):
 def test_help_owns_the_numbers():
     code, out, raw, err = skill("captions", "--help")
     assert code == 0
-    for word in ("16", "12", "5/6", "7", "0.5", "--font", "--size", "--margin", "--anchor", "--cues", "captions.import", "captions.setStyle", "Prints:", "Exits:", "Netflix"):
+    for word in ("16", "12", "5/6", "7", "0.5", "--font", "--size", "--margin", "--anchor", "--cues", "--units", "captions.import", "captions.setStyle", "Prints:", "Exits:", "Netflix"):
         assert word in raw, word
 
 
@@ -533,3 +533,212 @@ def test_korean_rules_stop_reading_a_word_merely_ending_in_a_conjunction_as_a_cl
 def test_korean_rules_do_not_read_a_capitalised_conjunction_as_a_clause_end():
     """The Korean rules matched these in lower case only. After `And`: 13 | 13.5 units with no clause break (2.025); after `하고`: 11 | 15.5, a clause break, cost 0.725."""
     assert captions.layout(words(even("오늘 편집 이야기를 하고 And 다음에 자막을 봅니다 정말로", 0.0, 4.0)), KO, FPS)[0].lines == ["오늘 편집 이야기를 하고", "And 다음에 자막을 봅니다 정말로"]
+
+
+# -- initials: a name is not a sentence end ------------------------------------------------------------------------------
+
+def test_an_initial_does_not_end_a_cue_from_a_transcript(tmp_path):
+    """38 characters fit one 42-character line, and nothing but the initial could end the cue early."""
+    t = tmp_path / "t.jsonl"
+    transcript_file(t, even("President Donald J. Trump won the vote.", 0.0, 3.0))
+    code, res, raw, err = skill("captions", "--transcript", str(t), "--rules", "en", "--fps", "30", "--out", str(tmp_path / "o.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    assert [l for _, _, l in parse_srt(tmp_path / "o.srt")] == [["President Donald J. Trump won the vote."]]
+
+
+def test_an_initial_does_not_end_a_cue_from_translated_cues(tmp_path):
+    src = tmp_path / "ko.srt"
+    src.write_text("1\n00:00:00,000 --> 00:00:03,000\n실패한 레임덕 대통령 도널드 J. 트럼프를요!\n", encoding="utf-8")
+    code, res, raw, err = skill("captions", "--cues", str(src), "--fps", "30", "--out", str(tmp_path / "o.srt"), cwd=tmp_path)
+    assert code == 0, raw + err
+    [(a, b, lines)] = parse_srt(tmp_path / "o.srt")
+    assert " ".join(lines) == "실패한 레임덕 대통령 도널드 J. 트럼프를요!"
+
+
+@pytest.mark.parametrize("rules", [EN, KO])
+def test_a_capital_and_a_dot_counts_as_an_initial_even_at_a_real_sentence_end(rules):
+    """The known cost of the rule: nothing here can tell `I chose A.` from `Donald J.`, and a name in two pieces is the worse mistake."""
+    cues = captions.layout(words(even("I chose A. Next question.", 0.0, 3.0)), rules, FPS)
+    assert len(cues) == 1
+
+
+@pytest.mark.parametrize("rules", [EN, KO])
+def test_a_quoted_initial_still_ends_a_sentence(rules):
+    cues = captions.layout(words(even('He said "J." Then left.', 0.0, 3.0)), rules, FPS)
+    assert len(cues) == 2
+
+
+# -- --units ------------------------------------------------------------------------------------------------------------
+
+def test_units_raises_the_line_limit_and_the_default_keeps_the_rule(tmp_path):
+    """Four words of four Hangul syllables and three half-unit spaces: 17.5 units."""
+    src = tmp_path / "ko.srt"
+    src.write_text("1\n00:00:00,000 --> 00:00:03,000\n가나다라 마바사아 자차카타 파하가나\n", encoding="utf-8")
+    run = lambda *a: skill("captions", "--cues", str(src), "--fps", "30", "--out", str(tmp_path / "o.srt"), *a, cwd=tmp_path)
+    code, res, raw, err = run()
+    assert code == 0, raw + err
+    assert parse_srt(tmp_path / "o.srt")[0][2] == ["가나다라 마바사아", "자차카타 파하가나"] and res["max_line_units"] == 16
+    code, res, raw, err = run("--units", "18")
+    assert code == 0 and parse_srt(tmp_path / "o.srt")[0][2] == ["가나다라 마바사아 자차카타 파하가나"]
+    assert res["violations"] == [] and res["max_line_units"] == 18
+    code, res, raw, err = run("--units", "17")
+    assert code == 0 and len(parse_srt(tmp_path / "o.srt")[0][2]) == 2
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan"])
+def test_impossible_units_are_usage_errors(tmp_path, value):
+    src = tmp_path / "ko.srt"
+    src.write_text("1\n00:00:00,000 --> 00:00:02,000\n좋은 질문이에요.\n", encoding="utf-8")
+    code, res, raw, err = skill("captions", "--cues", str(src), "--units", value, "--out", str(tmp_path / "o.srt"), cwd=tmp_path)
+    assert code == 2 and res and "error" in res
+
+
+# -- --cues keeps what the writer decided, where it fits ------------------------------------------------------------------
+
+def cues_run(tmp_path, srt, *args):
+    """`captions --cues` at 30 fps on this SubRip text; the written cues and the printed result."""
+    src = tmp_path / "in.srt"
+    src.write_text(srt, encoding="utf-8")
+    code, res, raw, err = skill("captions", "--cues", str(src), "--fps", "30", "--out", str(tmp_path / "o.srt"), *args, cwd=tmp_path)
+    assert code == 0, raw + err
+    return parse_srt(tmp_path / "o.srt"), res
+
+
+def test_cues_keep_a_line_break_the_length_rule_would_move(tmp_path):
+    """10 and 6.5 units, written top-heavy to keep a phrase whole; balance alone would break after 운명의."""
+    cues, res = cues_run(tmp_path, "1\n00:00:10,000 --> 00:00:12,500\n우리 운명의 주도권을\n되찾을 겁니다\n")
+    assert cues == [(10.0, 12.5, ["우리 운명의 주도권을", "되찾을 겁니다"])] and res["violations"] == []
+
+
+def test_cues_keep_two_speakers_on_two_lines_though_one_line_would_hold_them(tmp_path):
+    """15.5 units together, so one line would fit."""
+    cues, _ = cues_run(tmp_path, "1\n00:00:01,000 --> 00:00:03,000\n- 사랑해요, 존\n- 저도 사랑합니다\n")
+    assert cues[0][2] == ["- 사랑해요, 존", "- 저도 사랑합니다"]
+
+
+def test_a_kept_cue_still_loses_end_punctuation_under_korean_rules_and_keeps_it_under_english(tmp_path):
+    cues, _ = cues_run(tmp_path, "1\n00:00:01,000 --> 00:00:03,000\n기억하십시오.\n고맙습니다,\n")
+    assert cues[0][2] == ["기억하십시오", "고맙습니다"]
+    cues, _ = cues_run(tmp_path, "1\n00:00:01,000 --> 00:00:03,000\nThank you,\nGeorgia.\n", "--rules", "en")
+    assert cues[0][2] == ["Thank you,", "Georgia."]
+
+
+def test_a_kept_cue_lands_on_the_frames_inside_its_own_time(tmp_path):
+    """At 30 fps, 1.01 s is frame 30.3 so the first frame inside is 31; 3.99 s is frame 119.7 so the last is 119."""
+    [(a, b, lines)], _ = cues_run(tmp_path, "1\n00:00:01,010 --> 00:00:03,990\n우리 운명의 주도권을\n되찾을 겁니다\n")
+    assert a == round(31 / 30, 3) and b == round(119 / 30, 3)
+    assert lines == ["우리 운명의 주도권을", "되찾을 겁니다"]
+
+
+def test_only_the_cue_that_does_not_fit_is_laid_out_again(tmp_path):
+    """The middle cue has three lines; its 30 units fit no two lines of 16, so it becomes two cues inside its own 4 s."""
+    cues, res = cues_run(tmp_path, "1\n00:00:00,000 --> 00:00:03,000\n우리 운명의 주도권을\n되찾을 겁니다\n\n"
+                                   "2\n00:00:04,000 --> 00:00:08,000\n하지만 기억하십시오.\n조지아 곳곳의\n거실과 뒷마당, 유세장에서\n\n"
+                                   "3\n00:00:09,000 --> 00:00:11,000\n그리고 들어\n보세요\n")
+    assert cues[0] == (0.0, 3.0, ["우리 운명의 주도권을", "되찾을 겁니다"])
+    assert cues[-1] == (9.0, 11.0, ["그리고 들어", "보세요"])
+    middle = cues[1:-1]
+    assert len(middle) == 2 and all(len(l) <= 2 and all(captions.units(x) <= 16 for x in l) for _, _, l in middle)
+    assert middle[0][0] == 4.0 and middle[-1][1] <= 8.0
+    assert " ".join(x for _, _, l in middle for x in l).replace(".", "").replace(",", "") == "하지만 기억하십시오 조지아 곳곳의 거실과 뒷마당 유세장에서"
+
+
+def test_cue_over_the_longest_time_is_laid_out_again_though_its_lines_fit(tmp_path):
+    cues, _ = cues_run(tmp_path, "1\n00:00:00,000 --> 00:00:09,000\n이번 선거에 온 마음을 쏟은\n모든 자원봉사자 여러분\n")
+    assert len(cues) >= 2 and all(b - a <= 7.0 for a, b, _ in cues) and cues[-1][1] <= 9.0
+    assert " ".join(x for _, _, l in cues for x in l) == "이번 선거에 온 마음을 쏟은 모든 자원봉사자 여러분"
+
+
+def test_cue_of_exactly_the_longest_time_is_kept_and_a_longer_max_keeps_more(tmp_path):
+    seven = "1\n00:00:00,000 --> 00:00:07,000\n우리 운명의 주도권을\n되찾을 겁니다\n"
+    assert cues_run(tmp_path, seven)[0] == [(0.0, 7.0, ["우리 운명의 주도권을", "되찾을 겁니다"])]
+    nine = seven.replace("00:00:07,000", "00:00:09,000")
+    assert cues_run(tmp_path, nine, "--max", "10")[0] == [(0.0, 9.0, ["우리 운명의 주도권을", "되찾을 겁니다"])]
+
+
+def test_lines_and_units_decide_what_fits(tmp_path):
+    """The first line is 17.5 units: over the Korean 16, within --units 18. --lines 1 refuses any two-line cue."""
+    two = "1\n00:00:00,000 --> 00:00:03,000\n가나다라 마바사아 자차카타 파하가나\n차타\n"
+    assert all(captions.units(x) <= 16 for _, _, l in cues_run(tmp_path, two)[0] for x in l)
+    assert cues_run(tmp_path, two, "--units", "18")[0][0][2] == ["가나다라 마바사아 자차카타 파하가나", "차타"]
+    assert all(len(l) == 1 for _, _, l in cues_run(tmp_path, "1\n00:00:00,000 --> 00:00:03,000\n고맙습니다\n조지아\n", "--lines", "1")[0])
+
+
+def test_a_line_wider_than_the_burn_in_is_not_kept():
+    """10 units fit here and 9 do not, measured by the width predicate rather than the unit count."""
+    cue = captions.Cue(0.0, 3.0, ["우리 운명의 주도권을", "되찾을 겁니다"])
+    assert captions.relayout([cue], RULES, FPS, fits=lambda line: captions.units(line) <= 10)[0].lines == cue.lines
+    laid = captions.relayout([cue], RULES, FPS, fits=lambda line: captions.units(line) <= 9)
+    assert all(captions.units(l) <= 9 for c in laid for l in c.lines) and " ".join(l for c in laid for l in c.lines) == "우리 운명의 주도권을 되찾을 겁니다"
+
+
+def test_kept_cues_that_nearly_touch_are_chained_inside_their_own_times():
+    """Written touching: the first gives way 2 frames (88/30) so the chain's gap holds, and the second starts where it was written."""
+    a = captions.Cue(0.0, 3.0, ["우리 운명의", "주도권을"])
+    b = captions.Cue(3.0, 5.0, ["되찾을", "겁니다"])
+    first, second = captions.relayout([a, b], RULES, FPS)
+    assert first.end == 88 / 30 and second.start == 3.0 and first.lines == a.lines and second.lines == b.lines
+
+
+def test_overlapping_source_cues_stay_whole_and_in_order():
+    """Interleaving their words would scatter both sentences; the earlier cue gives way at the later one's start, less the 2-frame gap."""
+    a = captions.Cue(0.0, 4.0, ["우리 운명의", "주도권을"])
+    b = captions.Cue(2.0, 5.0, ["되찾을", "겁니다"])
+    first, second = captions.relayout([a, b], RULES, FPS)
+    assert (first.lines, second.lines) == (a.lines, b.lines)
+    assert first.end == 58 / 30 and second.start == 2.0
+
+
+@pytest.mark.parametrize("rules", [RULES, captions.Rules(max_units=4)])
+def test_a_cue_inside_a_longer_one_that_is_laid_out_again_stays_in_its_own_time(rules):
+    """The long cue becomes several around the short one, which starts on its own frame 30 and ends by 3.0 s; every piece of the long one stays within its 10 s, in order."""
+    long = captions.Cue(0.0, 10.0, ["one two three four five six seven eight nine ten"])
+    short = captions.Cue(1.0, 3.0, ["next"])
+    cues = captions.relayout([long, short], rules, FPS)
+    [inner] = [c for c in cues if c.lines == ["next"]]
+    assert inner.start == 1.0 and inner.end <= 3.0
+    assert all(0.0 <= c.start < c.end <= 10.0 for c in cues) and [c.start for c in cues] == sorted(c.start for c in cues)
+    assert " ".join(l for c in cues if c is not inner for l in c.lines) == "one two three four five six seven eight nine ten"
+
+
+def test_a_cue_of_nothing_but_end_punctuation_writes_no_empty_cue(tmp_path):
+    """A line reduced to nothing would write a cue with no text; under English rules the punctuation stays, so the cue does too."""
+    srt = "1\n00:00:01,000 --> 00:00:03,000\n.\n\n2\n00:00:04,000 --> 00:00:06,000\n네\n"
+    cues, res = cues_run(tmp_path, srt)
+    assert [l for _, _, l in cues] == [["네"]] and res["cues"] == 1
+    cues, _ = cues_run(tmp_path, srt, "--rules", "en")
+    assert [l for _, _, l in cues] == [["."], ["네"]]
+
+
+def test_a_kept_cue_too_short_and_too_fast_is_reported_not_changed(tmp_path):
+    """What `--help` says: only the longest time decides whether a cue is laid out again. 11 characters in 0.5 s is 22 a second."""
+    cues, res = cues_run(tmp_path, "1\n00:00:01,000 --> 00:00:01,500\nhello\nworld\n", "--rules", "en")
+    assert cues == [(1.0, 1.5, ["hello", "world"])]
+    assert {(v["kind"], v["value"]) for v in res["violations"]} == {("cps", 22.0), ("short", 0.5)}
+
+
+def test_cues_with_nothing_left_to_show_are_refused_and_write_nothing(tmp_path):
+    """`--help` promises exit 2 for an empty --cues file; a file of nothing but end punctuation is one under Korean rules."""
+    src = tmp_path / "in.srt"
+    src.write_text("1\n00:00:01,000 --> 00:00:03,000\n.\n", encoding="utf-8")
+    code, res, raw, err = skill("captions", "--cues", str(src), "--out", str(tmp_path / "o.srt"), cwd=tmp_path)
+    assert code == 2 and "error" in res and not (tmp_path / "o.srt").exists()
+
+
+def test_a_time_a_frame_rounded_to_a_millisecond_stays_on_that_frame(tmp_path):
+    """At 30 fps frame 32 is 1.0667 s, written 1,067, and frame 100 is 3.3333 s, written 3,333: the first lies just after its frame and the second just before, and neither is a reason to give up a frame."""
+    cues, _ = cues_run(tmp_path, "1\n00:00:01,067 --> 00:00:03,333\n우리 운명의 주도권을\n되찾을 겁니다\n")
+    assert cues == [(1.067, 3.333, ["우리 운명의 주도권을", "되찾을 겁니다"])]
+
+
+@pytest.mark.parametrize("fps", ["23.976", "29.97", "30"])
+def test_running_cues_again_on_their_own_output_changes_nothing(tmp_path, fps):
+    """Reading the SubRip, correcting it and running it again is the intended way to work, so a second run may not cost time or add violations."""
+    src = tmp_path / "in.srt"
+    src.write_text("".join(f"{n}\n00:00:{a},000 --> 00:00:{b},000\n우리 운명의 주도권을\n되찾을 겁니다\n\n" for n, (a, b) in enumerate([("01", "03"), ("03", "05"), ("07", "14"), ("20", "21")], 1)), encoding="utf-8")
+    run = lambda i, o: skill("captions", "--cues", str(i), "--fps", fps, "--out", str(o), cwd=tmp_path)
+    code, first, raw, err = run(src, tmp_path / "1.srt")
+    assert code == 0, raw + err
+    code, second, raw, err = run(tmp_path / "1.srt", tmp_path / "2.srt")
+    assert code == 0, raw + err
+    assert (tmp_path / "2.srt").read_text() == (tmp_path / "1.srt").read_text() and second["violations"] == first["violations"]

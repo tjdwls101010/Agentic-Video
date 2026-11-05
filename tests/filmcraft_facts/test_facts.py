@@ -547,3 +547,13 @@ def test_34_a_filler_list_removes_every_match_whatever_follows(proj):
     rows = fc_run([{"id": "transcript.set", "params": {"item": 1, "transcript": {"language": "ko", "source": "t", "speakers": [], "words": words}}}, {"id": "transcript.removeFillers", "params": {"fillers": ["음", "그", "저"]}}], p, cwd=d)
     assert all(r["ok"] for r in rows) and rows[1]["result"]["removed"] == 3
     assert [w["text"] for w in fc_json("exec", "transcript.inspect", project=p, cwd=d)["words"]] == ["사람은", "사람도", "그러니까"]
+
+
+def test_35_project_refuses_a_missing_file_and_save_as_starts_one(tmp_path):
+    """SKILL.md › Headless or the running app: `--project` opens a file that exists, and `--save-as P.fcproj import <media>` starts a project holding the media."""
+    make_av(tmp_path / "a.mp4", 1, rate="30", size="320x180")
+    p = tmp_path / "new.fcproj"
+    refused = fc("inspect", "project", project=p, cwd=tmp_path, check=False)
+    assert refused.returncode != 0 and not p.exists()
+    fc("--save-as", str(p), "import", str(tmp_path / "a.mp4"), cwd=tmp_path)
+    assert [c["name"] for c in fc_json("inspect", "project", project=p, cwd=tmp_path)["root"]["children"]] == ["a.mp4"]

@@ -37,6 +37,7 @@ allowed-tools:
 ## Headless or the running app
 
 - Work headless by default (`filmcraft-cli --project P.fcproj --save …`); there is no autosave, so saving is yours.
+- `--project` opens a file that exists; start one with `filmcraft-cli --save-as P.fcproj import <media>`.
 - Never edit on disk a `.fcproj` the app has open: whichever saves second throws the other's work away.
 
 ## How the CLI fails quietly
@@ -71,6 +72,7 @@ allowed-tools:
 - `transcript.removePauses` keeps `keepSeconds` on both sides of each pause, so set it to half the gap you want.
 - Speaker labels are the engine's clustering and nothing here checks them. A wrong attribution puts words in someone's mouth, so list what you attributed for the user before captions name or colour a speaker.
 - Captions come from `captions`, then its `next` commands: not `transcript.createCaptions` (it runs a short sentence into the next and does not measure width) and not `captions.add`/`setTimes` (they refuse overlaps; import is lenient).
+- `captions` breaks lines by length and cannot tell a phrase, so a break can part a modifier from its noun: read its lines and correct them in the SubRip; `--cues` keeps the lines and cues that fit.
 
 ## Graphics and motion graphics
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from video import chrome, ffmpeg, filmcraft, openrouter, whisper
 
@@ -10,6 +10,7 @@ __all__ = ["Facts", "judge", "report"]
 
 _RELEASES = "https://github.com/storytold/filmcraft/releases"
 _BREW_FFMPEG = "brew install ffmpeg"
+_BREW_REINSTALL_FFMPEG = "brew reinstall ffmpeg"
 _BREW_UV = "brew install uv"
 
 
@@ -23,6 +24,7 @@ class Facts:
     whisper_cached: bool
     key_source: str
     chrome: bool
+    broken: dict[str, str] = field(default_factory=dict)  # a tool that is there but does not run, and why; its bool above is False
 
 
 def _check(name: str, ok: bool, required: bool, value, why: str) -> dict:
@@ -40,19 +42,27 @@ def _filmcraft(f: Facts) -> tuple[dict, list[str]]:
     return _check("filmcraft_cli", False, True, value, "Install the CLI that matches the app: a project saved by a CLI newer than the app can have a schema the app cannot open."), filmcraft.install_steps(f.app_version)
 
 
+def _ffmpeg_tool(f: Facts, name: str, ok: bool, why: str) -> dict:
+    value = "installed" if ok else f"installed but does not run: {f.broken[name]}" if name in f.broken else "not installed"
+    return _check(name, ok, True, value, why)
+
+
 def judge(f: Facts) -> dict:
     cli, steps = _filmcraft(f)
     checks = [
         cli,
-        _check("ffmpeg", f.ffmpeg, True, "installed" if f.ffmpeg else "not installed", "Measures and draws sound, and extracts frames."),
-        _check("ffprobe", f.ffprobe, True, "installed" if f.ffprobe else "not installed", "Reads what a media file holds."),
+        _ffmpeg_tool(f, "ffmpeg", f.ffmpeg, "Measures and draws sound, and extracts frames."),
+        _ffmpeg_tool(f, "ffprobe", f.ffprobe, "Reads what a media file holds."),
         _check("uvx", f.uvx, True, "installed" if f.uvx else "not installed", "Runs the local speech model in its own environment."),
         _check("whisper_model", f.whisper_cached, False, "cached" if f.whisper_cached else "not cached", "Without it, the first transcribe --engine local downloads a large model." if not f.whisper_cached else "transcribe --engine local starts without a download."),
         _check("openrouter_key", f.key_source != "none", False, f.key_source, f"Needed by transcribe's default engine, openrouter; without it, use --engine local. It is read from OPENROUTER_API_KEY when that is set, otherwise from {openrouter.KEY_FILE}."),
         _check("chrome", f.chrome, False, "installed" if f.chrome else "not installed", "Needed only by graphic, which renders pages in Google Chrome."),
     ]
-    if not (f.ffmpeg and f.ffprobe):
+    tools = {"ffmpeg": f.ffmpeg, "ffprobe": f.ffprobe}
+    if any(not ok and name not in f.broken for name, ok in tools.items()):
         steps = [*steps, _BREW_FFMPEG]
+    if any(not ok and name in f.broken for name, ok in tools.items()):
+        steps = [*steps, _BREW_REINSTALL_FFMPEG]
     if not f.uvx:
         steps = [*steps, _BREW_UV]
     return {"ok": all(c["ok"] for c in checks if c["required"]), "checks": checks, "next": steps}
@@ -60,5 +70,6 @@ def judge(f: Facts) -> dict:
 
 def report() -> dict:
     cli, app = filmcraft.versions()
-    tools = ffmpeg.installed()
-    return judge(Facts(cli, app, tools["ffmpeg"], tools["ffprobe"], whisper.uvx_installed(), whisper.model_cached(), openrouter.key_source(), chrome.installed()))
+    tools = ffmpeg.status()
+    broken = {name: state for name, state in tools.items() if state not in ("ok", "missing")}
+    return judge(Facts(cli, app, tools["ffmpeg"] == "ok", tools["ffprobe"] == "ok", whisper.uvx_installed(), whisper.model_cached(), openrouter.key_source(), chrome.installed(), broken))

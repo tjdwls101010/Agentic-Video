@@ -23,8 +23,24 @@ def tool(name: str) -> str:
     return found
 
 
-def installed() -> dict[str, bool]:
-    return {name: shutil.which(name) is not None for name in ("ffmpeg", "ffprobe")}
+def status(timeout: float = 10.0) -> dict[str, str]:
+    """For ffmpeg and ffprobe: "ok", "missing", or why it does not run. Being on PATH proves little: a Homebrew dependency removed by hand leaves a binary the dynamic linker refuses, so the tool has to be run."""
+    out = {}
+    for name in ("ffmpeg", "ffprobe"):
+        found = shutil.which(name)
+        if not found:
+            out[name] = "missing"
+            continue
+        try:
+            r = subprocess.run([found, "-version"], capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            out[name] = f"timed out after {timeout:g} s"
+        except OSError as e:
+            out[name] = str(e)
+        else:
+            lines = [l.strip() for l in r.stderr.splitlines() if l.strip()]
+            out[name] = "ok" if r.returncode == 0 else (lines[0] if lines else f"exit {r.returncode}")
+    return out
 
 
 @dataclass

@@ -103,7 +103,7 @@ FilmCraft에 없는 일만 합니다. 모두 `uv run .claude/skills/video/script
 |---|---|
 | `transcribe` | 로컬 Whisper나 OpenRouter 모델의 단어 시간을 `transcript.set` JSONL로 씁니다. 확인할 단어(낮은 확신, 무음 위 단어, 배경음악 위 반복 환각, 말이 될 수 없이 빠른 구간)를 review로 주고, 단어 목록이 잘린 응답은 거부합니다 |
 | `waveform` | 지정한 구간의 파형과 스펙트로그램에 단어·자막 칸을 같은 시간축으로 겹쳐 그립니다. 소리를 못 듣는 Claude가 싱크를 눈으로 확인하는 도구입니다 |
-| `captions` | 시퀀스 전사, 프로젝트 없는 전사 파일(`--transcript`), 또는 직접 쓴 번역 SRT(`--cues`)를 한국어나 영어 자막 규칙(`--rules`)과 FilmCraft 번인 폭에 맞춰 SRT로 씁니다 |
+| `captions` | 시퀀스 전사, 프로젝트 없는 전사 파일(`--transcript`), 또는 직접 쓴 번역 SRT(`--cues`)를 한국어나 영어 자막 규칙(`--rules`)과 FilmCraft 번인 폭에 맞춰 SRT로 씁니다. `--cues`는 규칙에 맞는 큐의 줄바꿈을 유지합니다 |
 | `doctor` | 환경을 점검하고 고칠 명령을 줍니다. 설치와 네트워크 사용, 파일 쓰기를 하지 않습니다 |
 | `timeline` | 시퀀스를 요약합니다(클립 수와 무관하게 짧음). 클립별 TC 상세는 파일로 줍니다 |
 | `frames` | 렌더하거나 추출한 프레임을 TC 라벨 시트 한 장으로 만듭니다. 세로 영상이면 쇼츠·릴스·틱톡 세이프존을 겹쳐 그립니다 |
