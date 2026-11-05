@@ -224,13 +224,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--anchor", choices=["bottom", "top"], default="bottom", help="captions.setStyle anchor (default bottom); top when burned-in text already occupies the bottom")
     p.add_argument("--rules", choices=list(captions.RULE_PROFILES), default="ko", help="which subtitle rules to lay out to, below (default ko)")
     p.add_argument("--lines", type=int, choices=[1, 2], help="lines a cue may have (default from --rules: 2)")
+    p.add_argument("--units", type=positive, metavar="N", help="units a line may hold, counted as below (default from --rules: ko 16, en 21); a line must still fit the burn-in width")
     p.add_argument("--cps", type=positive, metavar="N", help="reading speed limit in characters a second (default from --rules: ko 12, en 20)")
     p.add_argument("--min", dest="min_s", type=positive, metavar="SEC", help="shortest cue (default from --rules: 5/6 s)")
     p.add_argument("--max", dest="max_s", type=positive, metavar="SEC", help="longest cue (default from --rules: 7 s)")
     p.add_argument("--fps", type=positive, metavar="F", help="--cues and --transcript: the sequence's frame rate, so cue times land on frames (default 30)")
     p.add_argument("--frame", type=size_arg, metavar="WxH", help="--cues and --transcript: the sequence's frame size, for the width check (default 1920x1080)")
     p.set_defaults(run=lambda a: captions.make(a.out.resolve(), project=a.project.resolve() if a.project else None, bridge=a.bridge, cues_file=a.cues.resolve() if a.cues else None, transcript=a.transcript.resolve() if a.transcript else None,
-                                               fps=a.fps, frame=a.frame, font=a.font, size=a.size, margin=a.margin, anchor=a.anchor, profile=a.rules, lines=a.lines, cps=a.cps, min_s=a.min_s, max_s=a.max_s))
+                                               fps=a.fps, frame=a.frame, font=a.font, size=a.size, margin=a.margin, anchor=a.anchor, profile=a.rules, lines=a.lines, units_per_line=a.units, cps=a.cps, min_s=a.min_s, max_s=a.max_s))
 
     p = sub.add_parser("transcribe", help="speech to a word-timed transcript.set line, from Whisper here or a model through OpenRouter", description=TRANSCRIBE_DESC, formatter_class=fmt)
     p.add_argument("media", type=Path, metavar="MEDIA", help="the media file the project item points at")

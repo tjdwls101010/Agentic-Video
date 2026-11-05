@@ -566,3 +566,28 @@ def test_a_capital_and_a_dot_counts_as_an_initial_even_at_a_real_sentence_end(ru
 def test_a_quoted_initial_still_ends_a_sentence(rules):
     cues = captions.layout(words(even('He said "J." Then left.', 0.0, 3.0)), rules, FPS)
     assert len(cues) == 2
+
+
+# -- --units ------------------------------------------------------------------------------------------------------------
+
+def test_units_raises_the_line_limit_and_the_default_keeps_the_rule(tmp_path):
+    """Four words of four Hangul syllables and three half-unit spaces: 17.5 units."""
+    src = tmp_path / "ko.srt"
+    src.write_text("1\n00:00:00,000 --> 00:00:03,000\n가나다라 마바사아 자차카타 파하가나\n", encoding="utf-8")
+    run = lambda *a: skill("captions", "--cues", str(src), "--fps", "30", "--out", str(tmp_path / "o.srt"), *a, cwd=tmp_path)
+    code, res, raw, err = run()
+    assert code == 0, raw + err
+    assert parse_srt(tmp_path / "o.srt")[0][2] == ["가나다라 마바사아", "자차카타 파하가나"] and res["max_line_units"] == 16
+    code, res, raw, err = run("--units", "18")
+    assert code == 0 and parse_srt(tmp_path / "o.srt")[0][2] == ["가나다라 마바사아 자차카타 파하가나"]
+    assert res["violations"] == [] and res["max_line_units"] == 18
+    code, res, raw, err = run("--units", "17")
+    assert code == 0 and len(parse_srt(tmp_path / "o.srt")[0][2]) == 2
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan"])
+def test_impossible_units_are_usage_errors(tmp_path, value):
+    src = tmp_path / "ko.srt"
+    src.write_text("1\n00:00:00,000 --> 00:00:02,000\n좋은 질문이에요.\n", encoding="utf-8")
+    code, res, raw, err = skill("captions", "--cues", str(src), "--units", value, "--out", str(tmp_path / "o.srt"), cwd=tmp_path)
+    assert code == 2 and res and "error" in res

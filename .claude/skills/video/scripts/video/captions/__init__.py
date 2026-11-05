@@ -30,10 +30,10 @@ def style_defaults(width: int, height: int) -> dict:
 
 
 def make(out: Path, *, project: Path | None = None, bridge: str | None = None, cues_file: Path | None = None, transcript: Path | None = None, fps: float | None = None, frame: tuple[int, int] | None = None,
-         font: str | None = None, size: float | None = None, margin: float | None = None, anchor: str = "bottom", profile: str = "ko", lines: int | None = None, cps: float | None = None,
+         font: str | None = None, size: float | None = None, margin: float | None = None, anchor: str = "bottom", profile: str = "ko", lines: int | None = None, units_per_line: float | None = None, cps: float | None = None,
          min_s: float | None = None, max_s: float | None = None) -> dict:
-    """Rules start from `profile`; each of `lines`, `cps`, `min_s`, `max_s` given replaces that one value."""
-    chosen = {k: v for k, v in {"lines": lines, "cps": cps, "min_s": min_s, "max_s": max_s}.items() if v is not None}
+    """Rules start from `profile`; each of `lines`, `units_per_line`, `cps`, `min_s`, `max_s` given replaces that one value."""
+    chosen = {k: v for k, v in {"lines": lines, "max_units": units_per_line, "cps": cps, "min_s": min_s, "max_s": max_s}.items() if v is not None}
     rules = replace(RULE_PROFILES[profile], **chosen)
     notes: list[str] = []
     if cues_file is None and transcript is None:
