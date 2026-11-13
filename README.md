@@ -48,7 +48,7 @@
 | OpenRouter 키 | 기본 전사 엔진에 필요. 없으면 `--engine local`. 아래 참고 |
 | 한글 폰트 | `filmcraft-cli exec fonts.list`에 Apple SD Gothic Neo 또는 Noto Sans KR |
 | EffectCraft 앱과 같은 버전의 `effectcraft-cli` (선택) | 합성·추적·매트가 필요할 때만. macOS의 CLI는 앱에 들어 있지 않고 릴리스 자산(`effectcraft-cli-<버전>-macos-universal.zip`)으로 따로 받습니다. `doctor`가 명령을 줍니다 |
-| 학습 매트 모델 (선택) | 사람 같은 대상을 화면에서 깨끗하게 분리할 때. 내장 엔진은 모양으로만 구분되는 대상에서 빈 매트를 냅니다. MobileSAM(약 40 MB)은 `effectcraft-cli exec roto.model.download`로 받고, 작품 폴더 밖 EffectCraft 데이터 폴더에 남습니다. Claude는 내려받기 전에 먼저 묻습니다 |
+| 학습 매트 모델 (선택) | 사람 같은 대상을 화면에서 깨끗하게 분리할 때. 내장 엔진은 모양으로만 구분되는 대상에서 빈 매트를 냅니다. MobileSAM(약 40 MB)은 `effectcraft-cli exec roto.model.download --params '{"id":"mobilesam","wait":true}'`로 받고(SAM 2는 가중치 파일로만 설치), 작품 폴더 밖 EffectCraft 데이터 폴더에 남습니다. Claude는 내려받기 전에 먼저 묻습니다 |
 
 `doctor`가 이 표의 대부분을 점검하고, 고칠 명령을 버전까지 채워 줍니다. 설치는 하지 않습니다. 앱보다 새 CLI로 저장한 프로젝트는 앱이 열지 못할 수 있어 CLI 버전이 앱과 다르면 실패로 봅니다. EffectCraft는 선택 항목이라 전체 판정을 실패로 만들지 않지만, 앱 옆에 CLI가 없거나 버전이 다르면 설치 명령을 줍니다.
 

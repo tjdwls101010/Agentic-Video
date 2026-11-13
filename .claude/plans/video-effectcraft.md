@@ -475,3 +475,22 @@ codex를 쓸 수 있었으므로 같은 계열 리뷰는 보조다. 실측 주�
 | M19 | 텍스트 레이어와 빨간 솔리드, 솔리드의 scale·position에 `sourceRectAtTime` 익스프레션(`set --expression` 두 번) | 헤드리스에서 동작: 상자 폭이 "짧은" 126 px, 긴 문장 536 px로 글을 따라감 | 10절 3: 컴포지션은 좌표로 놓이고, 글 길이를 따르는 배치는 익스프레션이 만든다 |
 | M20 | 인터체인지 컴프를 `render --format h264`로 MP4 → `qc --target youtube`; `commands --filter loud`/`normaliz` | `moov_position` 경고(끝), `integrated_loudness` -18.4로 실패. EffectCraft에 음량 맞춤 명령 없음 | Delivery 신규 줄 |
 | M21 | 측정 폴더의 파일 목록 | 두 CLI 모두 `--save`로 제자리 저장한 프로젝트 옆에 0바이트 `.<이름>.lock`을 남김(`--save-as`는 안 남김). EffectCraft 소스: 잠금은 저장하는 CLI 실행끼리만(`project_lock.rs`) | PR B의 L95, A의 L41(잠금은 앱을 포함하지 않음) |
+| E-구간 렌더 | 인터체인지 컴프를 `render --start 1.001 --end 2.002`, 전체 렌더와 함께 `ffprobe`의 timecode 태그와 첫 프레임 표식 | 구간 렌더는 30프레임([start, end), 끝 미포함), 첫 프레임 = 컴프 30프레임(소스 20). 두 렌더 모두 timecode 태그 없음 | 10절 5 |
+| E-앱 저장 | (실행 안 함) EffectCraft 소스에서 프로젝트 파일 변경 감지를 찾음 | 디스크 변경 감지는 푸티지·LUT에만 있고 프로젝트 파일에는 없다(리뷰어 확인). 앱에 열린 `.ecproj`를 CLI로 바꾼 뒤 앱이 저장하는 실행은 하지 않았다 | 4절 L41의 `.ecproj` 구절: 미검증으로 PR 본문에 적음 |
+
+## A5 리뷰 반영 (실제 A 트리)
+
+codex는 사용 한도 소진(2026-11-14 04:01까지)으로 실행되지 못했다(run `20261113-232211-pra-review-ce28`, `turn_failed`). CLAUDE.md의 대체 규칙대로 Claude 작업자(Opus 5.5, read-only, run `20261113-232238-pra-review-be56`)가 검토했다. 다른 모델 계열의 시각은 없다.
+
+| 지적 | 처분 |
+|---|---|
+| 1. 선택 항목의 설치 명령이 최상위 `next`에 섞여, FilmCraft만 쓰는 세션이 "doctor가 요구한 설치"로 읽음 | 채택: 최상위 `next`는 필수 항목만(기존 의미 유지), EffectCraft 명령은 그 검사의 `next`로. 계획 판정표의 "`next`에 install_steps"에서 바뀐 점 |
+| 2. SAM 2는 내려받기가 없고 파일 설치만 | 채택: 본문 문장 수정 |
+| 3. "Preview Background"는 Lower Third에만 있음. 8개 중 7개 템플릿이 `--transparent`에서 불투명 | 채택: 실측 후 문장과 test_09를 모든 템플릿 대상으로 |
+| 4. test_03이 실패할 수 없음(바뀌지 않은 프로젝트의 저장은 같은 바이트) | 채택: mtime으로, 대조군은 아무것도 바꾸지 않는 `exec project.summary --save` |
+| 5. EffectCraft 옵션 검사가 손으로 둔 집합뿐 | 채택: EffectCraft 절의 맨 옵션을 본문에서 모으고, 그 절의 id는 EffectCraft에서 확인. 하위 명령별 옵션은 확인하지 않음(테스트 docstring에 한계 명시) |
+| 6. test_11이 "내장 엔진으로 다시 계산"을 보이지 못함(0.5 s에서는 둘 다 빈 매트) | 채택: 같은 획의 내장 엔진 프로젝트와 기준 프레임에서 비교, Roto Brush의 부분 매트도 확인 |
+| 7. README의 `roto.model.download` 명령이 `id` 없이 실패 | 채택 |
+| 8. 근거 없는 주장: 구간 렌더, `.ecproj` 앱 저장, "place, length and Motion만", stderr 이유 | 구간 렌더는 원장에 추가(측정함), `.ecproj` 앱 저장은 미검증으로 표시, "만"은 과장이라 고침, stderr는 test_08에 단언 추가 |
+| 9. `--save-as` 데모 저장은 프로젝트가 없을 때만 | 채택: 문장 수정 |
+| 사소: test_06 대조군, 중복된 `frames --project`, "sound overwrites A1"은 기본 대상 가정 | 채택. test_05의 `set`에 `timeBase`가 없다는 단언은 원장 M2로 충분해 넣지 않음 |

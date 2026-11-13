@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import subprocess
 from pathlib import Path
 
@@ -90,16 +91,20 @@ def test_02_save_as_without_empty_saves_the_demo_with_the_new_work(tmp_path):
 
 
 def test_03_save_is_ignored_by_commands_that_only_read_or_render(tmp_path):
-    """SKILL.md › How effectcraft-cli fails quietly: `--save` writes only after a command that can change the project (`exec`, `run`, `set`, `script`); with `info`, `props`, `get`, `render-frame` and `render` the file is left as it was and nothing says so."""
+    """SKILL.md › How effectcraft-cli fails quietly: `--save` writes only after a command that can change the project (`exec`, `run`, `set`, `script`); with `info`, `props`, `get`, `render-frame` and `render` the file is not written and nothing says so. Written is told by the file's modification time, since a save of an unchanged project writes the same bytes."""
     p = new_project(tmp_path, "p", [("comp.new", {"name": "C", "width": 160, "height": 90, "duration": 0.5}), ("layer.newText", {"text": "x"})])
+
+    def written(*args) -> tuple[bool, str]:
+        os.utime(p, ns=(1_000_000_000, 1_000_000_000))
+        r = ec("--project", str(p), "--save", *args, "--json", cwd=tmp_path)
+        return p.stat().st_mtime_ns != 1_000_000_000, r.stdout
+
     for args in (["info"], ["props", "C", "#1"], ["get", "C", "#1", "transform/position"], ["render-frame", "--comp", "C", "--out", "f.png"], ["render", "--comp", "C", "--out", "r.mov", "--format", "prores"]):
-        before = digest(p)
-        r = ec("--project", str(p), "--save", *args, cwd=tmp_path)
-        assert r.returncode == 0 and digest(p) == before and '"saved"' not in r.stdout, args
-    # control: a command that changes the project is saved
-    before = digest(p)
-    ec("--project", str(p), "--save", "set", "C", "#1", "transform/opacity", "50", cwd=tmp_path)
-    assert digest(p) != before
+        saved, out = written(*args)
+        assert not saved and '"saved"' not in out, args
+    # control: a command that changes nothing is still saved when it may change the project
+    saved, out = written("exec", "project.summary")
+    assert saved and '"saved"' in out
 
 
 def test_04a_each_call_is_a_new_session_and_forgets_selection_and_settings(tmp_path):
@@ -153,12 +158,24 @@ def test_06_a_missing_font_falls_back_to_inter_and_only_a_layer_font_is_reported
     text = {"text": "Hello", "size": 60, "fill": "#ffffff"}
     p = new_project(tmp_path, "f", [("comp.new", {"name": "Missing", **comp}), ("layer.newText", {**text, "font": "NoSuchFontXYZ"}),
                                     ("comp.new", {"name": "Inter", **comp}), ("layer.newText", {**text, "font": "Inter"}),
-                                    ("comp.new", {"name": "Range", **comp}), ("layer.newText", {**text, "text": "abc def", "font": "Inter"})])
-    range_layer = ec_json("--project", str(p), "exec", "comp.info", "--params", json.dumps({"comp": "Range"}), cwd=tmp_path)["layers"][0]["id"]
-    ec_run(p, [("layer.setText", {"layer": range_layer, "range": [4, 7], "font": "NoSuchFontXYZ"})], cwd=tmp_path)
-    for c in ("Missing", "Inter"):
+                                    ("comp.new", {"name": "Georgia", **comp}), ("layer.newText", {**text, "font": "Georgia"}),
+                                    ("comp.new", {"name": "Range", **comp}), ("layer.newText", {**text, "text": "abc def", "font": "Inter"}),
+                                    ("comp.new", {"name": "RangeOk", **comp}), ("layer.newText", {**text, "text": "abc def", "font": "Inter"}),
+                                    ("comp.new", {"name": "Plain", **comp}), ("layer.newText", {**text, "text": "abc def", "font": "Inter"})])
+
+    def only_layer(comp_name):
+        return ec_json("--project", str(p), "exec", "comp.info", "--params", json.dumps({"comp": comp_name}), cwd=tmp_path)["layers"][0]["id"]
+
+    ec_run(p, [("comp.open", {"comp": "Range"}), ("layer.setText", {"layer": only_layer("Range"), "range": [4, 7], "font": "NoSuchFontXYZ"}),
+               ("comp.open", {"comp": "RangeOk"}), ("layer.setText", {"layer": only_layer("RangeOk"), "range": [4, 7], "font": "Georgia"})], cwd=tmp_path)
+    for c in ("Missing", "Inter", "Georgia", "Range", "RangeOk", "Plain"):
         ec("--project", str(p), "render-frame", "--comp", c, "--out", f"{c}.png", cwd=tmp_path)
-    assert rgba(tmp_path / "Missing.png").tobytes() == rgba(tmp_path / "Inter.png").tobytes()
+
+    def same(a, b):
+        return rgba(tmp_path / f"{a}.png").tobytes() == rgba(tmp_path / f"{b}.png").tobytes()
+
+    assert same("Missing", "Inter") and not same("Georgia", "Inter")    # control: an installed font draws differently
+    assert same("Range", "Plain") and not same("RangeOk", "Plain")      # control: a range font is applied when installed
     missing = ec_json("--project", str(p), "exec", "file.findMissing", "--params", '{"what":"fonts"}', cwd=tmp_path)["fonts"]
     assert [m["font"] for m in missing] == ["NoSuchFontXYZ"] and len(missing) == 1   # the layer font, not the range one
 
@@ -192,17 +209,23 @@ def test_08_footage_the_decoder_cannot_read_renders_black_with_success(tmp_path)
         assert not any(i["missing"] for i in ec_json("--project", str(p), "exec", "project.summary", cwd=tmp_path)["items"])
         r = ec("--project", str(p), "render-frame", "--time", "0.5", "--out", f"{name}.png", cwd=tmp_path)
         assert r.returncode == 0
-        seen[name] = max(Image.open(tmp_path / f"{name}.png").convert("L").get_flattened_data())
-    assert seen["h422"] == 0 and seen["h420"] > 100
+        seen[name] = (max(Image.open(tmp_path / f"{name}.png").convert("L").get_flattened_data()), r.stderr)
+    assert seen["h422"][0] == 0 and seen["h420"][0] > 100
+    assert "4:2:0" in seen["h422"][1] and "4:2:0" not in seen["h420"][1]    # the reason, on stderr only
 
 
-def test_09_a_builtin_template_carries_an_opaque_preview_background(tmp_path):
-    """SKILL.md › How effectcraft-cli fails quietly: the built-in templates carry a full-frame "Preview Background" layer, so a `--transparent` render of one comes out opaque, covering whatever it is placed over; without that layer the same render is transparent around the graphic."""
-    p = tmp_path / "lt.ecproj"
-    ec("--empty", "exec", "templates.create", "--params", json.dumps({"id": "lower-third", "projectPath": str(p)}), cwd=tmp_path)
-    ec("--project", str(p), "render-frame", "--time", "2", "--max-side", "480", "--transparent", "--out", "with.png", cwd=tmp_path)
-    alpha = rgba(tmp_path / "with.png").getchannel("A")
-    assert min(alpha.get_flattened_data()) == 255
+def test_09_most_builtin_templates_render_opaque_with_transparent(tmp_path):
+    """SKILL.md › How effectcraft-cli fails quietly: most built-in templates fill the frame with layers of their own, so a `--transparent` render comes out opaque without a warning, until those layers are removed. Controls: the 3D text template renders transparent, and the lower third without its "Preview Background" layer does too."""
+    opaque = {}
+    for tid in [t["id"] for t in ec_json("exec", "templates.list", cwd=tmp_path)]:
+        q = tmp_path / f"{tid}.ecproj"
+        ec("--empty", "exec", "templates.create", "--params", json.dumps({"id": tid, "projectPath": str(q)}), cwd=tmp_path)
+        r = ec("--project", str(q), "render-frame", "--time", "1.5", "--max-side", "320", "--transparent", "--out", f"{tid}.png", cwd=tmp_path)
+        assert r.returncode == 0 and "warn" not in r.stderr.lower()
+        opaque[tid] = min(rgba(tmp_path / f"{tid}.png").getchannel("A").get_flattened_data()) == 255
+    assert sum(opaque.values()) > len(opaque) / 2 and opaque["lower-third"], opaque
+    assert opaque["text-orbit-3d"] is False
+    p = tmp_path / "lower-third.ecproj"
     layers = ec_json("--project", str(p), "exec", "comp.info", cwd=tmp_path)["layers"]
     [bg] = [l["id"] for l in layers if l["name"].startswith("Preview Background")]
     ec_run(p, [("edit.clear", {"layers": [bg]})], cwd=tmp_path)
@@ -278,7 +301,7 @@ def test_10_the_builtin_object_matte_reports_success_with_an_empty_matte(ring):
 @needs_mobilesam
 @pytest.mark.parametrize("effect", ["objectMatte", "roto"])
 def test_11_an_unfrozen_matte_is_recomputed_by_the_next_call_with_the_builtin_engine(ring, effect):
-    """SKILL.md › How effectcraft-cli fails quietly: an Object Matte or Roto Brush matte that is not frozen is not stored in the project; the call that renders it computes it again with that call's engine, which is the built-in one, so a MobileSAM matte saved unfrozen renders like the built-in engine's, without an error. Frozen in the call that made it, it renders as MobileSAM made it."""
+    """SKILL.md › How effectcraft-cli fails quietly: an Object Matte or Roto Brush matte that is not frozen is not stored in the project; the call that renders it computes it again with that call's engine, which is the built-in one, so a MobileSAM matte saved unfrozen renders like the built-in engine's, without an error. Frozen in the call that made it, it renders as MobileSAM made it. Compared at the reference frame, where the built-in result is not empty (Roto Brush's partial matte), so an unfrozen matte that merely blanked the layer would fail."""
     d, clip = ring
     if effect == "objectMatte":
         make = [("objectMatte.apply", {"layer": 1, "point": POINT, "box": BOX, "frame": 0}), ("objectMatte.propagate", {"layer": 1, "wait": True})]
@@ -287,10 +310,14 @@ def test_11_an_unfrozen_matte_is_recomputed_by_the_next_call_with_the_builtin_en
                 ("roto.stroke", {"layer": 1, "kind": "bg", "points": [[20, 20], [300, 20], [300, 220], [20, 220], [250, 120]], "frame": 0, "radius": 8}),
                 ("roto.propagate", {"layer": 1, "direction": "forward", "wait": True})]
     sam = [("roto.model.select", {"id": "mobilesam", "wait": True})]
+    builtin = matte_project(d, f"{effect}_builtin", clip, make)
     unfrozen = matte_project(d, f"{effect}_unfrozen", clip, sam + make)
     frozen = matte_project(d, f"{effect}_frozen", clip, sam + make + [(f"{effect}.freeze", {"layer": 1, "wait": True})])
-    assert alpha_at(unfrozen, d, 0.5)[0] < 0.05
-    assert alpha_at(frozen, d, 0.5)[0] > 0.95
+    for t in (0, 0.5):
+        assert alpha_at(unfrozen, d, t)[0] == pytest.approx(alpha_at(builtin, d, t)[0], abs=0.02), t
+        assert alpha_at(frozen, d, t)[0] > 0.95, t
+    if effect == "roto":
+        assert 0.1 < alpha_at(builtin, d, 0)[0] < 0.6          # the built-in Roto Brush: a partial matte
 
 
 @pytest.mark.slow

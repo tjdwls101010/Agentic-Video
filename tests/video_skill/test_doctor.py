@@ -102,12 +102,12 @@ def test_the_key_check_reports_only_where_the_key_is(source):
     assert check(doctor.judge(facts(key_source=source)), "openrouter_key")["value"] == source
 
 
-# -- EffectCraft: optional, so it never fails the whole check, but a CLI that does not match the app still gets its install command ----
+# -- EffectCraft: optional, so it never fails the whole check and stays out of `next`, but a CLI that does not match the app gets its install command in its own check ----
 
 def test_no_effectcraft_at_all_is_optional_with_nothing_to_run():
     r = doctor.judge(facts(ec_cli_version=None, ec_app_version=None))
     c = check(r, "effectcraft_cli")
-    assert r["ok"] is True and r["next"] == []
+    assert r["ok"] is True and r["next"] == [] and "next" not in c
     assert c["ok"] is False and c["required"] is False and c["value"] == "not installed" and "EffectCraft" in c["why"]
 
 
@@ -116,13 +116,13 @@ def test_an_effectcraft_app_without_its_cli_gets_the_apps_release_asset():
     r = doctor.judge(facts(ec_cli_version=None, ec_app_version="0.24.1"))
     c = check(r, "effectcraft_cli")
     assert r["ok"] is True and c["ok"] is False and c["value"] == "not installed (app 0.24.1)" and "separate" in c["why"]
-    assert "effectcraft-cli-0.24.1-macos-universal.zip" in " ".join(r["next"])
+    assert "effectcraft-cli-0.24.1-macos-universal.zip" in " ".join(c["next"]) and r["next"] == []
 
 
 def test_an_effectcraft_cli_without_the_app_passes_for_headless_work():
     r = doctor.judge(facts(ec_cli_version="0.24.1", ec_app_version=None))
     c = check(r, "effectcraft_cli")
-    assert r["ok"] is True and c["ok"] is True and c["value"] == "0.24.1 (no app: headless only)" and r["next"] == []
+    assert r["ok"] is True and c["ok"] is True and c["value"] == "0.24.1 (no app: headless only)" and r["next"] == [] and "next" not in c
 
 
 def test_a_matching_effectcraft_cli_passes():
@@ -131,18 +131,20 @@ def test_a_matching_effectcraft_cli_passes():
 
 
 @pytest.mark.parametrize("cli", ["0.25.0", "0.23.0"])
-def test_a_mismatched_effectcraft_cli_fails_its_item_only_and_next_installs_the_apps_version(cli):
+def test_a_mismatched_effectcraft_cli_fails_its_item_only_and_its_check_installs_the_apps_version(cli):
+    """The command sits in the check, not in `next`: `next` is what the first command needs, and a FilmCraft-only session must not read an optional install as asked for."""
     r = doctor.judge(facts(ec_cli_version=cli, ec_app_version="0.24.1"))
     c = check(r, "effectcraft_cli")
-    assert r["ok"] is True and c["ok"] is False and c["value"] == f"{cli} (app 0.24.1)" and "open" in c["why"]
-    joined = " ".join(r["next"])
+    assert r["ok"] is True and r["next"] == [] and c["ok"] is False and c["value"] == f"{cli} (app 0.24.1)" and "open" in c["why"]
+    joined = " ".join(c["next"])
     assert "effectcraft-cli-0.24.1-macos-universal.zip" in joined and "v0.24.1" in joined and cli not in joined
 
 
-def test_effectcraft_steps_follow_filmcrafts_and_do_not_hide_them():
+def test_next_holds_only_required_fixes_when_effectcraft_also_needs_one():
     r = doctor.judge(facts(cli_version="0.14.0", app_version="0.17.0", ec_cli_version=None, ec_app_version="0.24.1"))
     assert r["ok"] is False
-    assert ["filmcraft-cli-0.17.0" in n for n in r["next"]] == [True, False] and "effectcraft-cli-0.24.1" in r["next"][1]
+    assert len(r["next"]) == 1 and "filmcraft-cli-0.17.0" in r["next"][0] and "effectcraft" not in r["next"][0]
+    assert "effectcraft-cli-0.24.1" in check(r, "effectcraft_cli")["next"][0]
 
 
 def test_effectcraft_install_steps_are_one_command_from_a_temporary_folder():

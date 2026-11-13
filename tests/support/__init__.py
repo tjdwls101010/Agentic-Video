@@ -27,7 +27,7 @@ EFFECTCRAFT = shutil.which("effectcraft-cli") or (str(Path.home() / ".local/bin/
 EC_MODELS = Path.home() / "Library/Application Support/EffectCraft/models"
 
 needs_effectcraft = pytest.mark.skipif(EFFECTCRAFT is None, reason="effectcraft-cli is not installed (cli.py doctor gives the command)")
-needs_mobilesam = pytest.mark.skipif(not (EC_MODELS / "mobile_sam.pt").exists(), reason="the MobileSAM model is not installed (effectcraft-cli exec roto.model.download downloads it); the tests do not download it")
+needs_mobilesam = pytest.mark.skipif(not (EC_MODELS / "mobile_sam.pt").exists(), reason="the MobileSAM model is not installed (effectcraft-cli exec roto.model.download --params '{\"id\":\"mobilesam\",\"wait\":true}' downloads it); the tests do not download it")
 
 
 def fc(*args: str, project: Path | None = None, save: bool = False, stdin: str | None = None, cwd: Path | None = None, check: bool = True):
