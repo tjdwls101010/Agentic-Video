@@ -75,11 +75,12 @@ def test_04_a_float_time_is_ignored(proj):
 # -- Speech as material --------------------------------------------------------------------------------------------------
 
 def test_11_this_build_cannot_transcribe(proj):
-    """`transcribe --help`: the release build has no speech-to-text and cannot download models; transcripts come in through transcript.set."""
+    """`transcribe --help`: the release build has no speech-to-text, so transcripts come in through transcript.set, yet transcript.downloadModel is enabled and would download a model generate cannot use (not run here: it is about 290 MB)."""
     d, p = proj
     assert fc_json("describe", "transcript.generate", cwd=d)["enabled"] is False
-    r = fc("exec", "transcript.downloadModel", project=p, cwd=d, check=False)
-    assert r.returncode != 0 and "not available" in r.stderr
+    r = fc("exec", "transcript.generate", '{"language": "en"}', project=p, cwd=d, check=False)
+    assert r.returncode != 0 and "not available in this build" in r.stderr
+    assert fc_json("describe", "transcript.downloadModel", cwd=d)["enabled"] is True
 
 
 def test_08_remove_pauses_keeps_keep_on_both_sides_snapped_inward(proj):
@@ -198,12 +199,12 @@ def test_07_export_defaults_to_the_in_out_range(proj):
     assert ff.probe(d / "all.mp4").duration == pytest.approx(12.0, abs=0.05)
 
 
-def test_13_mp4_has_moov_at_the_end_and_an_edit_list(proj):
-    """`qc --help` (moov_position) and SKILL.md › Before you hand something over: FilmCraft's MP4 puts moov after mdat and writes an edit list; a lossless `-c copy -movflags +faststart` remux fixes the first, the second is left alone."""
+def test_13_mp4_writes_an_edit_list(proj):
+    """`qc --help` (edit_list, recorded only because FilmCraft writes one): FilmCraft's MP4 carries an edit list. Since 0.20 it also puts moov first, so `moov_position` passes on its exports and the remux `qc` names is for files from elsewhere."""
     d, p = proj
     fc("export", str(d / "o.mp4"), "--range", "entire", project=p, cwd=d)
     lay = mp4.layout(d / "o.mp4")
-    assert lay.moov_first is False and lay.has_elst is True
+    assert lay.has_elst is True and lay.moov_first is True
 
 
 def test_15_loudness_target_is_met(proj):
@@ -489,8 +490,8 @@ def test_29_a_filmcraft_graphic_does_not_survive_an_fcp7_handoff(proj):
     assert any("HELLOTEXT" in line and "skipped" in line for line in imported["documents"][0]["report"])
 
 
-def test_30_stills_ignore_exif_rotation_and_heic_is_refused(tmp_path):
-    """SKILL.md › How the CLI fails quietly: a 64x32 JPEG tagged to display as 32x64 still makes a 64x32 sequence, with no warning; a HEIC is refused with a container error that does not name the format."""
+def test_30_heic_is_refused_without_naming_the_format(tmp_path):
+    """SKILL.md › How the CLI fails quietly: a HEIC is refused with a container error that does not name the format. (Stills have honoured EXIF rotation since 0.20: a 64x32 JPEG tagged to display as 32x64 makes a 32x64 sequence; checked here so the deleted sentence stays deleted for a reason.)"""
     d = tmp_path
     exif = Image.Exif()
     exif[0x0112] = 6
@@ -500,8 +501,9 @@ def test_30_stills_ignore_exif_rotation_and_heic_is_refused(tmp_path):
     assert imported["errors"] == []
     assert fc_run([{"id": "file.newSequenceFromClip", "params": {"items": imported["items"]}}], p, cwd=d)[0]["ok"]
     settings = fc_json("inspect", "sequence", project=p, cwd=d)["settings"]
-    assert (settings["width"], settings["height"]) == (64, 32)
+    assert (settings["width"], settings["height"]) == (32, 64)
     sips = shutil.which("sips")
+    assert sips, "sips makes the HEIC"
     if sips:
         Image.new("RGB", (64, 32), (255, 0, 0)).save(d / "a.png")
         subprocess.run([sips, "-s", "format", "heic", str(d / "a.png"), "--out", str(d / "a.heic")], capture_output=True, check=True)
