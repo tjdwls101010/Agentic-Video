@@ -55,6 +55,14 @@ def srgb(l: float) -> float:
 
 # -- How effectcraft-cli fails quietly: which project a call works on ------------------------------------------------------------
 
+def test_00_unknown_options_and_parameter_keys_are_refused(tmp_path):
+    """SKILL.md › How effectcraft-cli fails quietly: unlike filmcraft-cli, an unknown option exits 2 and an unknown top-level parameter key is an error naming the keys accepted; the control call with the right spelling succeeds."""
+    assert ec("info", "--jsno", cwd=tmp_path, check=False).returncode == 2
+    bad = ec("--empty", "exec", "comp.new", "--params", '{"nmae": "x"}', cwd=tmp_path, check=False)
+    assert bad.returncode != 0 and "nmae" in bad.stderr and "accepted: name" in bad.stderr
+    assert ec("--empty", "exec", "comp.new", "--params", '{"name": "x"}', cwd=tmp_path).returncode == 0
+
+
 def test_01_a_positional_project_needs_the_ecproj_extension_or_the_demo_runs(tmp_path):
     """SKILL.md › How effectcraft-cli fails quietly: a positional project whose name does not end in `.ecproj` is ignored and the call runs on the built-in demo project with exit 0, as does a call with no project; `--project` opens the path it is given."""
     p = new_project(tmp_path, "mine", [("comp.new", {"name": "Mine", "width": 320, "height": 180, "duration": 1})])
@@ -94,6 +102,17 @@ def test_03_save_is_ignored_by_commands_that_only_read_or_render(tmp_path):
     assert digest(p) != before
 
 
+def test_04a_each_call_is_a_new_session_and_forgets_selection_and_settings(tmp_path):
+    """SKILL.md › How effectcraft-cli fails quietly: every call is a new session; a layer selected and a setting changed with `prefs.set` hold within that call and are gone in the next, even with `--save`."""
+    p = tmp_path / "s.ecproj"
+    out = ec_json("--empty", "--save-as", str(p), "run", "comp.new", '{"name": "C", "duration": 1}', "layer.newText", '{"text": "a"}', "layer.newText", '{"text": "b"}',
+                  "layer.select", '{"layers": ["#2"]}', "project.summary", "{}", "prefs.set", '{"key": "general.undoLevels", "value": 99}', "prefs.get", '{"key": "general.undoLevels"}', cwd=tmp_path)
+    rows = [r["result"] for r in out["result"]]
+    assert len(rows[4]["selectedLayers"]) == 1 and rows[6] == 99                      # control: same call
+    assert ec_json("--project", str(p), "exec", "project.summary", cwd=tmp_path)["selectedLayers"] == []
+    assert ec_json("exec", "prefs.get", "--params", '{"key": "general.undoLevels"}', cwd=tmp_path) != 99
+
+
 @needs_mobilesam
 def test_04_each_call_is_a_new_session_and_forgets_the_chosen_model(tmp_path):
     """SKILL.md › How effectcraft-cli fails quietly: every call is a new session; the matte model chosen with `roto.model.select` holds within that call only, and the next call is back on the built-in engine."""
@@ -109,7 +128,7 @@ def test_04_each_call_is_a_new_session_and_forgets_the_chosen_model(tmp_path):
 # -- How effectcraft-cli fails quietly: time ------------------------------------------------------------------------------------
 
 def test_05_set_time_is_layer_time_counted_from_the_layer_start(roundtrip):
-    """SKILL.md › How effectcraft-cli fails quietly: `set --time` is layer time and `set` takes no time base; layer time 0 is the layer's `start`, not its In point, and a trimmed clip that came through interchange has a `start` other than 0. `prop.addKey` with `timeBase: comp` puts the key at the comp time given; the result's `compTime` shows where a key landed. Expected: the clip shows source frame 20 at sequence frame 30, so its start is (30 - 20) frames = 10 x 1001/30000 s."""
+    """SKILL.md › How effectcraft-cli fails quietly: `set --time` is layer time and `set` takes no time base; layer time 0 is the layer's `start`, not its In point, and a trimmed clip that came through interchange has a `start` other than 0. `prop.addKey` with `timeBase: comp` puts the key at the comp time given, `get --time` reads comp time, and the result's `compTime` shows where a key landed. Expected: the clip shows source frame 20 at sequence frame 30, so its start is (30 - 20) frames = 10 x 1001/30000 s."""
     d, e, layer = roundtrip["dir"], roundtrip["ecproj"], roundtrip["layer"]
     work = d / "t05.ecproj"
     work.write_bytes(e.read_bytes())
@@ -121,6 +140,9 @@ def test_05_set_time_is_layer_time_counted_from_the_layer_start(roundtrip):
     assert abs(key["compTime"] - (30 / NTSC + 1)) > 0.5                              # not from the In point
     [comp_key] = ec_run(work, [("prop.addKey", {"layer": layer, "path": "transform/opacity", "time": 2, "timeBase": "comp", "value": 70})], cwd=d)
     assert comp_key["compTime"] == pytest.approx(2, abs=frame)
+    # `get --time` is comp time: at the first key's comp time it reads that key's value; read as layer time it would land between the keys
+    at_first = ec_json("--project", str(work), "get", "-", str(layer), "transform/opacity", "--time", f"{key['compTime']:.6f}", cwd=d)["value"]
+    assert at_first == pytest.approx(40, abs=0.5)
 
 
 # -- How effectcraft-cli fails quietly: fonts ------------------------------------------------------------------------------------
