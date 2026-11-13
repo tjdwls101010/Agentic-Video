@@ -301,7 +301,7 @@ def test_10_the_builtin_object_matte_reports_success_with_an_empty_matte(ring):
 @needs_mobilesam
 @pytest.mark.parametrize("effect", ["objectMatte", "roto"])
 def test_11_an_unfrozen_matte_is_recomputed_by_the_next_call_with_the_builtin_engine(ring, effect):
-    """SKILL.md › How effectcraft-cli fails quietly: an Object Matte or Roto Brush matte that is not frozen is not stored in the project; the call that renders it computes it again with that call's engine, which is the built-in one, so a MobileSAM matte saved unfrozen renders like the built-in engine's, without an error. Frozen in the call that made it, it renders as MobileSAM made it. Compared at the reference frame, where the built-in result is not empty (Roto Brush's partial matte), so an unfrozen matte that merely blanked the layer would fail."""
+    """SKILL.md › How effectcraft-cli fails quietly: an Object Matte or Roto Brush matte that is not frozen is not stored in the project; the call that renders it computes it again with that call's engine, which is the built-in one, so a MobileSAM matte saved unfrozen renders like the built-in engine's, without an error. Frozen in the call that made it, it renders as MobileSAM made it. Compared at the reference frame, where the built-in result is not empty (Object Matte's point, Roto Brush's partial matte) and the unfrozen render matches it pixel for pixel, so an unfrozen matte that merely blanked the layer would fail."""
     d, clip = ring
     if effect == "objectMatte":
         make = [("objectMatte.apply", {"layer": 1, "point": POINT, "box": BOX, "frame": 0}), ("objectMatte.propagate", {"layer": 1, "wait": True})]
@@ -316,6 +316,9 @@ def test_11_an_unfrozen_matte_is_recomputed_by_the_next_call_with_the_builtin_en
     for t in (0, 0.5):
         assert alpha_at(unfrozen, d, t)[0] == pytest.approx(alpha_at(builtin, d, t)[0], abs=0.02), t
         assert alpha_at(frozen, d, t)[0] > 0.95, t
+    # at the reference frame the built-in matte is not empty (Object Matte: the clicked point; Roto Brush: a partial matte), and the unfrozen one matches it pixel for pixel, so a blanked layer fails
+    assert alpha_at(builtin, d, 0)[0] > 0.001
+    assert rgba(d / f"{unfrozen.stem}_0.png").getchannel("A").tobytes() == rgba(d / f"{builtin.stem}_0.png").getchannel("A").tobytes()
     if effect == "roto":
         assert 0.1 < alpha_at(builtin, d, 0)[0] < 0.6          # the built-in Roto Brush: a partial matte
 

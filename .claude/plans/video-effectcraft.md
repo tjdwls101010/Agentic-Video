@@ -495,6 +495,8 @@ codex는 사용 한도 소진(2026-11-14 04:01까지)으로 실행되지 못했�
 | 9. `--save-as` 데모 저장은 프로젝트가 없을 때만 | 채택: 문장 수정 |
 | 사소: test_06 대조군, 중복된 `frames --project`, "sound overwrites A1"은 기본 대상 가정 | 채택. test_05의 `set`에 `timeBase`가 없다는 단언은 원장 M2로 충분해 넣지 않음 |
 
+좁은 재리뷰(run `20261113-234535-pra-review-6bd6`): 12개 중 11개 닫힘. test_11의 Object Matte 경우가 빈 레이어와 내장 엔진의 점 크기 매트를 구분하지 못한다는 지적 하나를 채택해, 기준 프레임에서 내장 매트가 비어 있지 않고 고정 안 한 매트가 픽셀 단위로 같음을 단언했다.
+
 ## A6 검증 결과 (새 본문, Claude 작업자 Fable 5.2, `auto` 프로필, 작업 폴더 `.tmp/contrast/a*`)
 
 입력: B3와 같은 실제 클립(`261109_예산안 심사/assets/컷편집.mp4` 20 s부터 4 s)을 놓은 `short.fcproj`. a3에는 미리 만든 `graphics/title.ecproj`와 그 렌더가 V2에 놓여 있다. 세 실행 모두 `video` 스킬을 열었다(`Skill` 호출 1회).
