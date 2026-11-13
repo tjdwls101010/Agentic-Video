@@ -49,7 +49,7 @@ allowed-tools:
 - `clip.speedDuration` without `reverse` turns reverse playback off. Time-remapping keyframes do not render.
 - Narration (`tts.*`) has English voices only; Korean text is refused with a message that does not say why.
 - Text layers default to Inter, which has no Hangul: set an installed Korean family (`fonts.list`) and look at a render.
-- Stills ignore EXIF rotation without a warning, so a portrait phone photo lands sideways; a HEIC is refused with a container error that does not name the format.
+- A HEIC still is refused with a container error that does not name the format.
 - Lumetri and FilmCraft-only effects do not travel in a handoff; say which. Importing an FCP7 XML merges it into the open project and makes its sequence the active one.
 
 ## Seeing and hearing the edit
