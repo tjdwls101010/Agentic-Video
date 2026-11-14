@@ -569,3 +569,14 @@ PR A는 codex 한도로 다른 모델 계열 리뷰 없이 머지됐다. 한도�
 | M13 정정 | 옮긴 작품 폴더에서 EffectCraft `render-frame`, `footage.check {"wait":true}`, `file.relinkFootage`; FilmCraft `render`, `media.autoRelink` | M13의 "EffectCraft는 찾는다"는 틀렸다: `missing:false`인 채 검은 프레임을 exit 0으로 렌더하고, 같은 호출의 `footage.check {"wait":true}` 뒤에야 missing으로 표시된다. FilmCraft는 offline으로 렌더를 거부하고 `media.autoRelink`가 다시 잇는다 | L93 문장, test_20 |
 | ids 없는 호출 | `effects.apply`, `clip.speedDuration`을 `clips` 없이 헤드리스로 | "select clips first", "no clips selected"로 거부(조용하지 않음). `timeline.razor`는 클립 없이 모든 트랙을 자름 | L45 문장을 "거부된다"로 |
 | qc 비대상 파일 | 소리 없는 ProRes 4444 그래픽에 `qc --target youtube` | `container`·`audio`로 실패 | L26 문장 그대로 |
+
+## B2 codex 리뷰 (전체 본문, run `20261114-093251-prb-review-4df3`)
+
+| 지적 | 처분 |
+|---|---|
+| 1. 옮긴 EffectCraft 프로젝트가 `missing:false`로 검은 렌더 | 리뷰 중 이미 같은 결함을 찾아 고침(B1 뒤 확인 M13 정정, test_20) |
+| 2·3·4·8. A 절 문장이 측정 범위보다 넓음 | 다른 이유라 PR #10으로 따로 고침 |
+| 5. 시퀀스 크기·레이트는 `sequence.settings`로 바뀜 | 채택: 재현 후 "현재 설정을 따른다"로 |
+| 6. 하이라이트 후보가 금방 읽힌다는 이유가 빠짐 | 채택: 계획의 이유를 되살림. 행동은 B3로 확인 |
+| 7. 타이틀 문구가 "한 번의 호출과 렌더"는 아님 | 채택 |
+| 9. README의 "먼저 묻는다", 헤드리스 기본, 폴더만으로 열림 | 채택: 뒤 둘은 고침, README 34줄의 일하는 방식은 B3 결과에 맞춰 고침 |
