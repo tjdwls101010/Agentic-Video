@@ -66,7 +66,7 @@ allowed-tools:
 
 ## Speech as material
 
-- Transcribing anew with the default engine of `transcribe` sends the whole audio to a third party (OpenRouter) and costs money; `--engine local` and `--from-json` send nothing. Its `--help` compares the engines and covers correcting and applying the result.
+- Transcribe with `transcribe`. Unless told `--engine local`, it sends the audio to OpenRouter and costs money; its `--help` compares the engines and covers correcting and applying the result.
 - A transcript's times are a claim about the audio, and no check in `transcribe` proves them. When timing decides something and you have a reason to doubt it (a word start from the local engine, a `compressed` range, two transcripts that disagree, a model or language you have not checked), look with `waveform`.
 - `transcript.removeFillers` removes English fillers only unless given a list (Korean ones such as 음, 어, 아, 뭐; markers such as 그러니까 or 이제 are words a speaker may mean), and still reports success. A list removes every match whatever follows it, so 그 and 저 would turn 그 사람은 into 사람은. A filler the engine left out of the transcript cannot be removed this way, and removing pauses first leaves a gap where each filler was.
 - `transcript.removePauses` keeps `keepSeconds` on both sides of each pause, so set it to half the gap you want.
