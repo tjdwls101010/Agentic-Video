@@ -18,7 +18,7 @@ FACT_FILES = [REPO / "tests/filmcraft_facts/test_facts.py", REPO / "tests/effect
 # File names and things that are not command ids but look like `word.word`.
 NOT_COMMANDS = re.compile(r"\.(fcproj|ecproj|ectemplate|jsonl|srt|mov|png|mp4|json|html|py|md)$|^(P|X|Y)\.")
 # The ids SKILL.md names as EffectCraft's. Every other id it names must be FilmCraft's: an id is checked against the one app it is meant for, because the two apps share families with different members (EffectCraft's `file.findMissing`, FilmCraft's `media.findMissing`).
-EFFECTCRAFT_IDS = {"command.describe", "file.importTimeline", "file.projectSettings", "file.findMissing", "text.fonts", "roto.model.select", "roto.freeze", "objectMatte.freeze", "prefs.set"}
+EFFECTCRAFT_IDS = {"command.describe", "footage.check", "file.relinkFootage", "file.importTimeline", "file.projectSettings", "file.findMissing", "text.fonts", "roto.model.select", "roto.freeze", "objectMatte.freeze", "prefs.set"}
 # Sections whose bare options (`--audio off`, `set --time`) are effectcraft-cli's.
 EFFECTCRAFT_SECTIONS = ("Where a picture is made", "How effectcraft-cli fails quietly")
 
