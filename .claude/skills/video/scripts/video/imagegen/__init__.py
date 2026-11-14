@@ -302,4 +302,9 @@ def generate(folder: Path, name: str, *, prompt: str | None, refs: list[Path], t
 
 
 def note(folder: Path, target: str, *, choose: bool | None, notes: list[str], critique: str | None) -> dict:
-    return {"written": []}
+    """Write the user's choice and words and Claude's assessment under the ledger's lock, then redraw the sheet."""
+    if not imageledger.exists(folder):
+        raise InputError(f"no {imageledger.LEDGER} in {folder}: imagegen has made nothing there")
+    imageledger.check_folder(folder)
+    written = imageledger.judge(folder, unicodedata.normalize("NFC", target), choose=choose, notes=notes, critique=critique)
+    return {"written": written, "sheet": str(_redraw(folder)), "ledger": str(folder / imageledger.LEDGER)}

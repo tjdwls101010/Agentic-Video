@@ -605,3 +605,95 @@ def test_a_sheet_that_could_not_be_opened_is_tried_again_next_time(env):
     assert "contact-sheet.html" in err
     assert env.gen()[0] == 0
     assert len(env.opened()) == 2 and "sheet_opened" in env.ledger()
+
+
+# -- imagenote --------------------------------------------------------------------------------------------------------------
+
+def test_choosing_noting_and_assessing_a_picture_reach_the_ledger_and_the_sheet(env):
+    assert env.gen("--n", "2")[0] == 0
+    code, out, raw, err = env.note("mic-2", "--choose", "--note", "왼쪽 것이 더 낫다, 금색이 덜 탁해서", "--critique", "Brass reads warm; the stand is cut off at the bottom.")
+    assert code == 0, raw + err
+    assert out["sheet"] == str(env.dir / "contact-sheet.html") and out["ledger"] == str(env.dir / "imagegen.json") and len(out["written"]) == 3
+    row = {a["id"]: a for a in env.attempts()}["mic-2"]
+    assert row["chosen"] is True and [n["text"] for n in row["notes"]] == ["왼쪽 것이 더 낫다, 금색이 덜 탁해서"] and row["critique"].startswith("Brass reads warm")
+    html = sheet_html(env)
+    assert "선택" in html and "왼쪽 것이 더 낫다, 금색이 덜 탁해서" in html and "Brass reads warm" in html and "선택 mic-2" in html
+
+
+def test_notes_append_and_a_critique_replaces(env):
+    assert env.gen()[0] == 0
+    env.note("mic-1", "--note", "first", "--critique", "old view")
+    env.note("mic-1", "--note", "second", "--critique", "new view")
+    row = env.attempts()[0]
+    assert [n["text"] for n in row["notes"]] == ["first", "second"] and row["critique"] == "new view"
+    html = sheet_html(env)
+    assert "new view" in html and "old view" not in html
+
+
+def test_a_name_takes_notes_only(env):
+    assert env.gen()[0] == 0
+    code, out, raw, err = env.note("mic", "--note", "이 소품은 화면 오른쪽 아래에 작게")
+    assert code == 0 and [n["text"] for n in env.ledger()["names"][0]["notes"]] == ["이 소품은 화면 오른쪽 아래에 작게"]
+    assert "이 소품은 화면 오른쪽 아래에 작게" in sheet_html(env)
+    for flag in (["--choose"], ["--unchoose"], ["--critique", "x"]):
+        code, out, raw, err = env.note("mic", *flag)
+        assert code == 2 and "name" in out["error"]
+
+
+def test_choosing_again_or_unchoosing_an_unchosen_picture_succeeds_and_changes_nothing(env):
+    assert env.gen()[0] == 0
+    code, out, raw, err = env.note("mic-1", "--unchoose")
+    assert code == 0 and "already" in out["written"][0] and "chosen" not in env.attempts()[0]
+    before = stamp(env)
+    assert env.note("mic-1", "--unchoose")[0] == 0 and stamp(env) == before
+    assert env.note("mic-1", "--choose")[0] == 0 and env.note("mic-1", "--choose")[1]["written"] == ["mic-1: chosen (already)"]
+    assert env.note("mic-1", "--unchoose")[0] == 0 and "chosen" not in env.attempts()[0]
+
+
+@pytest.mark.parametrize("scenario", ["rewrite,rewrite", "refuse_input"])
+def test_only_an_ok_picture_can_be_chosen(env, scenario):
+    env.gen(FAKE_CODEX_SCENARIO=scenario)
+    before = (env.dir / "imagegen.json").read_bytes()
+    code, out, raw, err = env.note("mic-1", "--choose")
+    assert code == 2 and "not ok" in out["error"] and (env.dir / "imagegen.json").read_bytes() == before
+
+
+@pytest.mark.parametrize("args, words", [
+    (["mic-1"], "nothing to write"),
+    (["mic-9", "--note", "x"], "neither"),
+    (["sky", "--note", "x"], "neither"),
+])
+def test_imagenote_refuses_what_it_cannot_write(env, args, words):
+    assert env.gen()[0] == 0
+    before = (env.dir / "imagegen.json").read_bytes()
+    code, out, raw, err = env.note(*args)
+    assert code == 2 and words in out["error"] and (env.dir / "imagegen.json").read_bytes() == before
+
+
+def test_imagenote_without_a_ledger_is_refused_and_writes_nothing(env):
+    env.dir.mkdir(parents=True)
+    code, out, raw, err = env.note("mic-1", "--choose")
+    assert code == 2 and "imagegen.json" in out["error"] and list(env.dir.iterdir()) == []
+
+
+def test_choose_and_unchoose_cannot_go_together(env):
+    assert env.gen()[0] == 0
+    code, out, raw, err = env.note("mic-1", "--choose", "--unchoose")
+    assert code == 2
+
+
+def test_a_note_written_while_imagegen_runs_is_kept(env):
+    assert env.gen()[0] == 0
+    p = subprocess.Popen([sys.executable, str(CLI), "imagegen", "mic", "--dir", str(env.dir), "--n", "4", "--no-open"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         env={**os.environ, **env.env(FAKE_CODEX_DELAY="1.0")}, text=True)
+    p.stdin.write(PROMPT)
+    p.stdin.close()
+    p.stdin = None
+    assert wait_for(lambda: len(env.starts()) >= 3)
+    for i in range(5):
+        assert env.note("mic-1", "--note", f"note {i}")[0] == 0
+    p.communicate(timeout=60)
+    assert p.returncode == 0
+    row = env.attempts()[0]
+    assert [n["text"] for n in row["notes"]] == [f"note {i}" for i in range(5)]
+    assert [a["status"] for a in env.attempts()] == ["ok"] * 5
