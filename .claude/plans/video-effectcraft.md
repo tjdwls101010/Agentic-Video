@@ -430,7 +430,7 @@ codex를 쓸 수 있었으므로 같은 계열 리뷰는 보조다. 실측 주�
 | E30 | EffectCraft에서 바로 낸 H.264 MP4는 `qc`에서 moov 위치 경고가 나고, `effectcraft-cli commands --filter loud`는 비어 있다(작업자 실행, M20에서 재확인) | 작업자 실행 |
 | E31 | `.ecproj`에는 `schema`(지금 2)와 `savedBy`가 있고, 로더는 자기보다 새 스키마의 프로젝트를 거부한다. macOS의 CLI는 릴리스 자산 `effectcraft-cli-0.24.1-macos-universal.zip`(+`SHA256SUMS.txt`)으로 앱과 따로 배포된다 | `project/src/settings.rs:7-16`, `tests.rs:220`, `gh release view v0.24.1 -R storytold/effectcraft` |
 
-### 기준선 (스킬 없는 Claude, Opus 5.5, `claude -p --safe-mode --restricted`)
+### 기준선 (스킬 없는 Claude, `claude -p --safe-mode --restricted --model fable`: Fable 5.2. 이 표의 머리말은 처음에 Opus 5.5로 잘못 적혀 있었고, 실행 명령으로 확인해 고쳤다)
 
 | 실행 | 과제 | 결과 |
 |---|---|---|
@@ -561,3 +561,11 @@ PR A는 codex 한도로 다른 모델 계열 리뷰 없이 머지됐다. 한도�
 | L95 | 렌더 캐시와 두 CLI의 `.lock`은 결과물이 아님(M21) | "말하라" |
 | L101 | 새로 띄울 때만 포트가 열림, 종료하면 저장 안 된 편집이 사라짐 | "저장하고 종료해 달라고 하라, 직접 종료하지 마라" |
 | L105 | 열린 프로젝트에는 하다 만 편집이 있고 브리지 저장은 되돌릴 수 없음, `ui_*`는 보이는 창을 움직여 입력과 섞임 | "타이핑 중 UI를 움직이지 마라, 저장은 그들에게, 앱은 열어 둬라" |
+
+## B1 뒤 확인 (2026-11-14)
+
+| # | 명령 | 결과 | 반영 |
+|---|---|---|---|
+| M13 정정 | 옮긴 작품 폴더에서 EffectCraft `render-frame`, `footage.check {"wait":true}`, `file.relinkFootage`; FilmCraft `render`, `media.autoRelink` | M13의 "EffectCraft는 찾는다"는 틀렸다: `missing:false`인 채 검은 프레임을 exit 0으로 렌더하고, 같은 호출의 `footage.check {"wait":true}` 뒤에야 missing으로 표시된다. FilmCraft는 offline으로 렌더를 거부하고 `media.autoRelink`가 다시 잇는다 | L93 문장, test_20 |
+| ids 없는 호출 | `effects.apply`, `clip.speedDuration`을 `clips` 없이 헤드리스로 | "select clips first", "no clips selected"로 거부(조용하지 않음). `timeline.razor`는 클립 없이 모든 트랙을 자름 | L45 문장을 "거부된다"로 |
+| qc 비대상 파일 | 소리 없는 ProRes 4444 그래픽에 `qc --target youtube` | `container`·`audio`로 실패 | L26 문장 그대로 |

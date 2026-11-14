@@ -539,6 +539,43 @@ def test_18_hdr_footage_through_effectcraft_comes_back_in_other_colours(tmp_path
     assert far(fc_frame(tmp_path / "hlg.mp4", "hlg_orig"), fc_frame(tmp_path / "hlg_ec.mov", "hlg_back")) >= 8
 
 
+# -- Working files ----------------------------------------------------------------------------------------------------------
+
+@needs_filmcraft
+def test_20_a_moved_piece_folder_breaks_filmcraft_loudly_and_effectcraft_quietly(tmp_path):
+    """SKILL.md › Working files: both apps store media by absolute path. In place both render the clip; moved elsewhere, FilmCraft refuses to render the offline media and `media.autoRelink` reconnects it, while EffectCraft keeps the item unmarked, renders it black with exit 0, and marks it missing only after `footage.check {"wait": true}` in the same call; `file.relinkFootage` reconnects it."""
+    piece = tmp_path / "piece"
+    (piece / "assets").mkdir(parents=True)
+    (piece / "graphics").mkdir()
+    ffmpeg("-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(piece / "assets/clip.mp4"))
+    ec("--empty", "--save-as", str(piece / "graphics/g.ecproj"), "run", "file.import", json.dumps({"paths": [str(piece / "assets/clip.mp4")], "newComp": True}), cwd=tmp_path)
+    fc("--save-as", str(piece / "p.fcproj"), "import", str(piece / "assets/clip.mp4"), cwd=tmp_path)
+    fc("--save", "exec", "file.newSequenceFromClip", '{"items":[1]}', project=piece / "p.fcproj", cwd=tmp_path)
+
+    def ec_lit(project: Path, name: str) -> int:
+        r = ec("--project", str(project), "render-frame", "--time", "1", "--out", f"{name}.png", cwd=tmp_path)
+        assert r.returncode == 0
+        return max(Image.open(tmp_path / f"{name}.png").convert("L").get_flattened_data())
+
+    assert ec_lit(piece / "graphics/g.ecproj", "in_place") > 100                              # control: in place
+    assert fc("render", "--seconds", "1", "--out", str(tmp_path / "fc_in_place.png"), project=piece / "p.fcproj", cwd=tmp_path).returncode == 0
+    moved = tmp_path / "moved"
+    piece.rename(moved)
+    g = moved / "graphics/g.ecproj"
+    assert ec_lit(g, "moved") == 0
+    unmarked = ec_json("--project", str(g), "exec", "project.summary", cwd=tmp_path)["items"]
+    assert not any(i["missing"] for i in unmarked)
+    out = ec_json("--project", str(g), "run", "footage.check", '{"wait": true}', "project.summary", "{}", cwd=tmp_path)
+    assert any(i["missing"] for i in out[1]["result"]["items"])
+    ec("--project", str(g), "--save", "exec", "file.relinkFootage", "--params", json.dumps({"folder": str(moved), "wait": True}), cwd=tmp_path)
+    assert ec_lit(g, "relinked") > 100
+    p = moved / "p.fcproj"
+    refused = fc("render", "--seconds", "1", "--out", str(tmp_path / "fc_moved.png"), project=p, cwd=tmp_path, check=False)
+    assert refused.returncode != 0 and "offline" in refused.stderr
+    fc("--save", "exec", "media.autoRelink", json.dumps({"from": str(piece), "to": str(moved)}), project=p, cwd=tmp_path)
+    assert fc("render", "--seconds", "1", "--out", str(tmp_path / "fc_relinked.png"), project=p, cwd=tmp_path).returncode == 0
+
+
 # -- Delivery ------------------------------------------------------------------------------------------------------------------
 
 def test_19_a_direct_mp4_has_moov_at_the_end_and_effectcraft_cannot_set_loudness(tmp_path):
