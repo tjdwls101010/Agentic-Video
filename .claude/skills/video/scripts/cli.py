@@ -127,7 +127,7 @@ IMAGEGEN_DESC = f"""\
 Make gpt-image pictures through the user's Codex CLI and its ChatGPT login: one `codex exec` per picture, asking Codex's built-in image_gen tool. The prompt and every --ref image go to OpenAI, and each picture draws on the same Codex usage limits as the user's other Codex work. Codex also keeps its own copy of every picture ($CODEX_HOME/generated_images) and a session record of every call, outside DIR; they are left there.
 
 The folder
-DIR holds the pictures, its ledger imagegen.json and its contact sheet contact-sheet.html (with .sheet-stamp.js and lock files beside them). A picture is DIR/NAME-k.png, where k counts every try under NAME in this folder, failed ones and other requests included, so no run overwrites or changes a picture already there. The ledger and the sheet are rewritten by every run. The sheet shows every try at full size with what was said about it (imagenote); unless --no-open, the first run that can open it opens it in the browser, and an open tab refreshes itself. A DIR whose imagegen.json is not this ledger, or that holds a contact-sheet.html without one, is refused before anything is written.
+DIR holds the pictures, its ledger imagegen.json and its contact sheet contact-sheet.html (with .sheet-stamp.js and lock files beside them). A picture is DIR/NAME-k.png, where k counts every try under NAME in this folder, failed ones and other requests included, so no run overwrites or changes a picture already there. The ledger and the sheet are rewritten by every run. The sheet is where the user sees the candidates at full size, with what was said about each (imagenote): the folder's first run opens it in their browser (a session that cannot open it says where it is, and the next run tries again), and an open tab refreshes itself. A DIR whose imagegen.json is not this ledger, or that holds a contact-sheet.html without one, is refused before anything is written.
 
 Requests
 A prompt on stdin makes a new request under NAME (the prompt, its --ref images, --transparent, --label) and --n tries of it. --again IMAGE makes more tries of the request that made IMAGE and reads no stdin: the prompt comes byte for byte from the ledger, and every reference must still be the file it was (same path, same sha256), or nothing is generated.
@@ -344,7 +344,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--again", metavar="IMAGE", help="more tries of the request that made IMAGE (NAME-k); no stdin, no --ref, --transparent or --label")
     p.add_argument("--n", type=int, default=1, choices=range(1, imagegen.CONCURRENCY + 1), metavar="K", help=f"tries of this request, 1-{imagegen.CONCURRENCY} (default 1), run at once")
     p.add_argument("--timeout", type=positive, default=imagegen.TIMEOUT_S, metavar="S", help=f"seconds one try may take, its retry included (default {imagegen.TIMEOUT_S})")
-    p.add_argument("--no-open", action="store_true", help="do not open the contact sheet in the browser (a later run opens it if it never was)")
     p.set_defaults(run=run_imagegen)
 
     p = sub.add_parser("imagenote", help="record which generated picture the user chose, what they said, and your assessment", description=IMAGENOTE_DESC, formatter_class=fmt)
@@ -392,7 +391,7 @@ def run_imagegen(a) -> dict:
         prompt = sys.stdin.read().strip()
         if not prompt:
             raise InputError("the prompt on stdin is empty")
-    return imagegen.generate(folder, a.name, prompt=prompt, refs=[Path(os.path.abspath(r)) for r in a.ref], transparent=a.transparent, label=a.label, again=a.again, n=a.n, timeout=a.timeout, open_sheet=not a.no_open)
+    return imagegen.generate(folder, a.name, prompt=prompt, refs=[Path(os.path.abspath(r)) for r in a.ref], transparent=a.transparent, label=a.label, again=a.again, n=a.n, timeout=a.timeout)
 
 
 def run_imagenote(a) -> dict:

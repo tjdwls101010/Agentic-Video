@@ -275,7 +275,7 @@ def _open(folder: Path, name: str, *, prompt: str | None, refs: list[Path], tran
     return request["r"], request, rows
 
 
-def generate(folder: Path, name: str, *, prompt: str | None, refs: list[Path], transparent: bool, label: str | None, again: str | None, n: int, timeout: float, open_sheet: bool) -> dict:
+def generate(folder: Path, name: str, *, prompt: str | None, refs: list[Path], transparent: bool, label: str | None, again: str | None, n: int, timeout: float) -> dict:
     name = imageledger.check_name(name)
     stop = threading.Event()
 
@@ -298,8 +298,7 @@ def generate(folder: Path, name: str, *, prompt: str | None, refs: list[Path], t
             finally:
                 signal.pthread_sigmask(signal.SIG_UNBLOCK, _SIGNALS)   # a stop that came while the tries were being opened is taken here, once their ids are known
             sheet_path = _redraw(folder)
-            if open_sheet:
-                sheet.open_once(folder, sheet_path)
+            sheet.open_once(folder, sheet_path)
             _say(f"{name}: {len(rows)} tr{'y' if len(rows) == 1 else 'ies'} of request {r}, at most {CONCURRENCY} at once; contact sheet: {sheet_path}")
             stopped_by = _run_queue(folder, request, rows, timeout, stop)
         except _Stopped as exc:

@@ -446,7 +446,7 @@ def test_one_command_runs_its_tries_at_once(env):
 
 def test_commands_run_at_once_on_one_folder_lose_no_row_and_share_no_number(env):
     def launch(name, n, prompt):
-        p = subprocess.Popen([sys.executable, str(CLI), "imagegen", name, "--dir", str(env.dir), "--n", str(n), "--no-open"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        p = subprocess.Popen([sys.executable, str(CLI), "imagegen", name, "--dir", str(env.dir), "--n", str(n)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              env={**os.environ, **env.env(FAKE_CODEX_DELAY="0.5")}, text=True)
         p.stdin.write(prompt)
         p.stdin.close()
@@ -635,13 +635,17 @@ def test_a_transparent_picture_shows_its_alpha_over_a_checkerboard(env):
     assert "투명 75%" in html and "repeating-conic-gradient" in html
 
 
-def test_the_sheet_opens_once_and_only_when_asked(env):
-    assert env.gen("--no-open")[0] == 0
-    assert env.opened() == [] and "sheet_opened" not in env.ledger()
+def test_the_folders_first_run_opens_the_sheet_and_later_runs_do_not(env):
     assert env.gen()[0] == 0
     assert env.opened() == [str(env.dir / "contact-sheet.html")] and "sheet_opened" in env.ledger()
-    assert env.gen()[0] == 0
+    assert env.gen()[0] == 0 and env.note("mic-1", "--note", "x")[0] == 0
     assert len(env.opened()) == 1
+
+
+def test_there_is_no_flag_that_keeps_the_sheet_closed(env):
+    """Every model run in the contrast passed --no-open and the user never saw the candidates, so the flag was removed."""
+    code, out, raw, err = env.gen("--no-open")
+    assert code == 2 and env.starts() == []
 
 
 def test_a_sheet_that_could_not_be_opened_is_tried_again_next_time(env):
@@ -729,7 +733,7 @@ def test_choose_and_unchoose_cannot_go_together(env):
 
 def test_a_note_written_while_imagegen_runs_is_kept(env):
     assert env.gen()[0] == 0
-    p = subprocess.Popen([sys.executable, str(CLI), "imagegen", "mic", "--dir", str(env.dir), "--n", "4", "--no-open"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    p = subprocess.Popen([sys.executable, str(CLI), "imagegen", "mic", "--dir", str(env.dir), "--n", "4"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          env={**os.environ, **env.env(FAKE_CODEX_DELAY="1.0")}, text=True)
     p.stdin.write(PROMPT)
     p.stdin.close()
@@ -753,7 +757,11 @@ def test_real_codex_one_transparent_picture_with_a_reference(tmp_path):
     folder = tmp_path / "그림 폴더" / "imagegen"
     ref = make_ref(tmp_path / "참조 그림.png", colour=(30, 90, 160))
     prompt = "Square 1:1 aspect ratio. A single blue paper star, flat and simple, in the colour of the reference image, centred on a transparent background. No text."
-    code, out, raw, err = skill("imagegen", "star", "--dir", str(folder), "--ref", str(ref), "--transparent", "--no-open", input=prompt)
+    fake_open = tmp_path / "bin" / "open"   # the real sheet would open in the user's browser on every gated run
+    fake_open.parent.mkdir()
+    fake_open.write_text("#!/bin/sh\nexit 0\n")
+    fake_open.chmod(0o755)
+    code, out, raw, err = skill("imagegen", "star", "--dir", str(folder), "--ref", str(ref), "--transparent", input=prompt, env={"PATH": f"{fake_open.parent}{os.pathsep}{os.environ['PATH']}"})
     assert code == 0, raw + err
     [res] = out["results"]
     assert res["status"] == "ok" and res["verbatim"] in ("exact", "normalized"), res
