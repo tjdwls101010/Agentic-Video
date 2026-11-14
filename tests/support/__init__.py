@@ -79,13 +79,13 @@ def ec_run(project: Path, steps: list[tuple[str, dict]], cwd: Path, save: bool =
     return [r["result"] for r in (out["result"] if isinstance(out, dict) else out)]   # with --save the steps sit under "result" next to "saved"
 
 
-def skill(*args: str, cwd: Path | None = None, via_uv: bool = False):
-    """Run the skill's cli.py the way the model does (via_uv) or with this interpreter (same file, faster). Returns (returncode, parsed stdout or None, stderr)."""
+def skill(*args: str, cwd: Path | None = None, via_uv: bool = False, input: str | None = None, env: dict | None = None):
+    """Run the skill's cli.py the way the model does (via_uv) or with this interpreter (same file, faster). `input` is its stdin (none: an empty one); `env` is added to this process's environment. Returns (returncode, parsed stdout or None, stdout, stderr)."""
     cmd = (["uv", "run", "-q", str(CLI)] if via_uv else [sys.executable, str(CLI)]) + list(args)
-    env = dict(os.environ)
+    env = {**os.environ, **(env or {})}
     if cwd is not None:
         env["FILMCRAFT_DATA_DIR"] = str(Path(cwd) / ".fcdata")
-    r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env, timeout=1200)
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env, input=input if input is not None else "", timeout=1200)
     try:
         out = json.loads(r.stdout) if r.stdout.strip() else None
     except json.JSONDecodeError:

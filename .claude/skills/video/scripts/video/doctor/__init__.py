@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from video import chrome, effectcraft, ffmpeg, filmcraft, openrouter, whisper
+from video import chrome, codex, effectcraft, ffmpeg, filmcraft, openrouter, whisper
 
 __all__ = ["Facts", "judge", "report"]
 
@@ -26,6 +26,7 @@ class Facts:
     chrome: bool
     ec_cli_version: str | None
     ec_app_version: str | None
+    codex: bool
     broken: dict[str, str] = field(default_factory=dict)  # a tool that is there but does not run, and why; its bool above is False
 
 
@@ -73,6 +74,7 @@ def judge(f: Facts) -> dict:
         _check("whisper_model", f.whisper_cached, False, "cached" if f.whisper_cached else "not cached", "Without it, the first transcribe --engine local downloads a large model." if not f.whisper_cached else "transcribe --engine local starts without a download."),
         _check("openrouter_key", f.key_source != "none", False, f.key_source, f"Needed by transcribe's default engine, openrouter; without it, use --engine local. It is read from OPENROUTER_API_KEY when that is set, otherwise from {openrouter.KEY_FILE}."),
         _check("chrome", f.chrome, False, "installed" if f.chrome else "not installed", "Needed only by graphic, which renders pages in Google Chrome."),
+        _check("codex", f.codex, False, "installed" if f.codex else "not installed", "Needed only by imagegen, which generates pictures through the Codex CLI and the user's ChatGPT login. Whether it is logged in is checked by imagegen when it runs, since running any codex command writes into the user's Codex folder."),
         _effectcraft(f),
     ]
     tools = {"ffmpeg": f.ffmpeg, "ffprobe": f.ffprobe}
@@ -90,4 +92,4 @@ def report() -> dict:
     ec_cli, ec_app = effectcraft.versions()
     tools = ffmpeg.status()
     broken = {name: state for name, state in tools.items() if state not in ("ok", "missing")}
-    return judge(Facts(cli, app, tools["ffmpeg"] == "ok", tools["ffprobe"] == "ok", whisper.uvx_installed(), whisper.model_cached(), openrouter.key_source(), chrome.installed(), ec_cli, ec_app, broken))
+    return judge(Facts(cli, app, tools["ffmpeg"] == "ok", tools["ffprobe"] == "ok", whisper.uvx_installed(), whisper.model_cached(), openrouter.key_source(), chrome.installed(), ec_cli, ec_app, codex.executable() is not None, broken))

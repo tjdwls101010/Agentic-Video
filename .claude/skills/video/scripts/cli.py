@@ -2,18 +2,19 @@
 # requires-python = ">=3.12"
 # dependencies = ["pillow>=10", "playwright>=1.50"]
 # ///
-"""Tools FilmCraft lacks for editing from the shell: speech to word-timed transcripts, caption layout, pictures of sound to check them against, a compact timeline readout, frame contact sheets, delivery QC, and graphics rendered from HTML pages."""
+"""Tools FilmCraft lacks for editing from the shell: speech to word-timed transcripts, caption layout, pictures of sound to check them against, a compact timeline readout, frame contact sheets, delivery QC, graphics rendered from HTML pages, and pictures generated with gpt-image through Codex."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import os
 import re
 import sys
 from pathlib import Path
 
-from video import captions, doctor, frames, graphic, openrouter, qc, timeline, transcribe, waveform
+from video import captions, doctor, frames, graphic, imagegen, openrouter, qc, timeline, transcribe, waveform
 from video.errors import InputError, ToolError
 from video.filmcraft import Source
 from video.timecode import Rate
@@ -22,7 +23,7 @@ EXIT_OK, EXIT_TOOL, EXIT_USAGE, EXIT_QC_FAIL = 0, 1, 2, 3
 
 ROOT_EPILOG = """\
 Every command prints one JSON document on stdout; progress and diagnostics go to stderr.
-Exit codes: 0 success; 1 an external tool (filmcraft-cli, ffmpeg, mlx-whisper, OpenRouter, Chrome) failed or is missing, and the JSON carries `error` and `stderr_tail`; 2 the command line must change, and the JSON carries `error` and the `help` to read; 3 only from `qc`, when a required check failed.
+Exit codes: 0 success; 1 an external tool (filmcraft-cli, ffmpeg, mlx-whisper, OpenRouter, Chrome, Codex) failed or is missing, and the JSON carries `error` and `stderr_tail`; 2 the command line must change, and the JSON carries `error` and the `help` to read; 3 only from `qc`, when a required check failed.
 Commands that read a project take exactly one of --project P.fcproj (headless, the file on disk) or --bridge 127.0.0.1:PORT (the running app, including unsaved edits)."""
 
 TIMELINE_DESC = """\
@@ -108,7 +109,7 @@ Exits: 0 written; 2 the command line must change (a .mov without a length, a len
 DOCTOR_DESC = """\
 Check this machine before the first command. It takes no arguments, installs nothing, uses no network and writes nothing.
 Prints: {"ok" (every required check passed), "checks": [{"name", "ok", "required", "value", "why", "next" (only effectcraft_cli, when the CLI is missing beside the app or does not match it: the command that installs the app's version)}], "next": [commands that fix what is required, with versions filled in; with neither the FilmCraft CLI nor its app none can be named for them, and the filmcraft_cli `why` says where they come from]}.
-Checks: filmcraft_cli (required; installed and the same version as the app; passes with no app, since headless work needs none), ffmpeg, ffprobe and uvx (each required; installed), whisper_model (optional; the default local model is cached, value cached or not cached), openrouter_key (optional; value env, file or none, where the key would come from; the key itself is never printed), chrome (optional; needed by graphic), effectcraft_cli (optional; needed only for EffectCraft compositions; installed and the same version as the EffectCraft app, passing with no app; the CLI is a separate release asset, so the check carries the command that installs it). An optional item matters only when the task needs it, and never fails the check.
+Checks: filmcraft_cli (required; installed and the same version as the app; passes with no app, since headless work needs none), ffmpeg, ffprobe and uvx (each required; installed), whisper_model (optional; the default local model is cached, value cached or not cached), openrouter_key (optional; value env, file or none, where the key would come from; the key itself is never printed), chrome (optional; needed by graphic), codex (optional; needed only by imagegen; value installed or not installed: whether it is logged in is left to imagegen, because running any codex command writes into the user's Codex folder), effectcraft_cli (optional; needed only for EffectCraft compositions; installed and the same version as the EffectCraft app, passing with no app; the CLI is a separate release asset, so the check carries the command that installs it). An optional item matters only when the task needs it, and never fails the check.
 Exits: 0 every required check passed; 1 a required check failed; 2 the command line must change.
 """
 
@@ -119,6 +120,68 @@ Reading it: voiced sound shows as stacked harmonics; unvoiced sound such as s or
 Sources: --words takes transcript.set lines (from transcribe, with or without an item) and SubRip files, and reads their times as seconds of MEDIA: a source file takes media-time transcripts, an exported file takes sequence-time captions. To see an engine's own times from a raw reply, make a line first with transcribe MEDIA --from-json RAW.json --snap off --out X.jsonl, which costs nothing.
 Prints: {{"sheet", "width", "windows": [{{"start", "end", "y": {{"wave", "spectrum", "rows"}} ([top, bottom) in sheet pixels), "speech": [[start, end]] (the same speech measurement transcribe uses, in seconds, so you can often decide before opening the picture; empty for a window with no speech, or when the whole file's level is too flat to measure; a span over music proves nothing), "rows": [{{"source", "items": [{{"text", "start", "end"}}]}}]}}], "notes"}}. Read the sheet image to see it.
 Exits: 0 written; 2 no window, more than {waveform.MAX_WINDOWS} windows, a window under {waveform.MIN_WINDOW_SECONDS} s, over {waveform.MAX_WINDOW_SECONDS} s or outside the media, more than {waveform.MAX_SOURCES} --words files, one that cannot be read, or media with no audio; 1 ffmpeg is missing or failed.
+"""
+
+
+IMAGEGEN_DESC = f"""\
+Make gpt-image pictures through the user's Codex CLI and its ChatGPT login: one `codex exec` per try (and one more when Codex changed the prompt), asking Codex's built-in image_gen tool. The prompt and every --ref image go to OpenAI, and each picture draws on the same Codex usage limits as the user's other Codex work. Codex also keeps its own copy of every picture ($CODEX_HOME/generated_images) and a session record of every call, outside DIR; they are left there.
+
+The folder
+DIR holds the pictures, its ledger imagegen.json and its contact sheet contact-sheet.html (with .sheet-stamp.js and lock files beside them). A picture is DIR/NAME-k.png, where k counts every try under NAME in this folder, failed ones and other requests included, so no run overwrites or changes a picture already there. The ledger and the sheet are rewritten by every run. The sheet is where the user sees the candidates at full size, with what was said about each (imagenote): the folder's first run opens it in their browser (a session that cannot open it says where it is, and the next run tries again), and an open tab refreshes itself. A DIR whose imagegen.json is not this ledger, or that holds a contact-sheet.html without one, is refused before anything is written.
+
+Requests
+A prompt on stdin makes a new request under NAME (the prompt, its --ref images, --transparent, --label) and --n tries of it. --again IMAGE makes more tries of the request that made IMAGE and reads no stdin: the prompt comes byte for byte from the ledger, and every reference must still be the file it was (same path, same sha256), or nothing is generated.
+
+What image_gen cannot do, whatever the prompt says
+- Pixel size: the model sets it, about 1.6 megapixels in every shape. Measured: 16:9 1672x941, 9:16 941x1672, 1:1 1254x1254, 4:5 1122x1402, 3:1 2172x724 (another model can differ; `w` and `h` say what came).
+- Quality, seed, mask: none. A request with a --ref picture redraws the whole picture; it is not inpainting, and parts meant to stay can change.
+
+Time
+One picture usually takes 30 s to a minute (a refusal, seconds). At most {imagegen.CONCURRENCY} run at once within one command, so --n {imagegen.CONCURRENCY} takes about as long as one. --timeout bounds each try, its one retry included. Give the Bash call a timeout above --timeout, or run it in the background. Stopping the command (SIGTERM, SIGINT) ends its Codex calls and closes their tries as interrupted. A killed command (SIGKILL) cannot: its Codex calls run on to their end, using the allowance, and its tries are closed as interrupted by the next command that reads the ledger.
+
+How the model reads a prompt: tendencies observed on this path, not laws; when a result disagrees, trust the result.
+- Write the prompt as English prose. Codex is told to pass it to image_gen word for word, and verbatim says whether it did.
+- State the aspect ratio in the first sentence ("Portrait 9:16 aspect ratio, taller than it is wide."); the shape is set only by the prompt, and left unsaid the model picks one.
+- Whatever is named first takes more of the frame and the first look, so name the subject first.
+- Listing several media keeps only some of them; to mix, name one medium and give it another's quality ("an oil painting with the flatness of a screenprint").
+- Anything not supplied gets invented (names, dates, numbers, signs, slogans), differently in every picture: give every string the picture must show, Korean included, inside double quotes exactly as it must read, and close with "no other text"; a surface that must carry no text has to be called blank.
+- Asked for unreadable marks, it writes readable-looking fake Hangul. Short Hangul strings come out mostly right; lettering whose strokes turn into objects breaks the letters.
+- A flat ground given as a hex colour comes out close to it; colour names and comparisons drift further.
+- A shape with one right answer (a flag, a symbol) comes out right when its structure is described, not its name and count.
+- For material that goes over footage or into a scene (a prop, an icon, a texture, a background), say the scene's light direction and colour, and ask for --transparent or a flat ground that separates cleanly.
+- Moderation can refuse the prompt (stage input: change the prompt, since the same words are refused again) or the picture made from it (stage output: rewording does not help, another try can). The same prompt can pass on one try and not another.
+
+Prints: {{"summary": "3 requested · 2 ok · 1 refused", "name", "request" (its number under NAME, from 1), "results": [{{"image" (NAME-k), "file"? (absolute), "status", "w"?, "h"?, "alpha"?, "verbatim"?, "error"?}}], "sheet", "ledger"}}. Exit 0 needs only one picture ok, so read `summary` and each `status`.
+stderr: one line per try as it ends: its status, size and seconds, or why it failed and what to do next.
+
+status
+  running         opened and not yet closed (waiting in the queue included)
+  ok              the picture is in DIR and can be chosen
+  prompt_altered  Codex changed the prompt even after one retry; the picture is in DIR and on the sheet, and cannot be chosen
+  refused         moderation blocked it; detail.stage is input (the prompt), output (the picture made) or unknown
+  no_image        Codex finished without a picture; detail.message holds Codex's reason verbatim when it gave one
+  executor_error  Codex itself failed (could not start, exited non-zero, gave no final message), the try failed here (detail.message), or DIR/NAME-k.png already existed outside the ledger (left alone)
+  timeout         no answer within --timeout; the Codex process group was ended
+  interrupted     the command was stopped or died; a picture placed just before that has `file`, but where it came from was not checked, and it cannot be chosen
+verbatim compares the prompt image_gen received, as Codex's own session record shows it, with the one written: exact; normalized (whitespace only); mismatch (Codex changed it: one more try with a stronger instruction, and if still changed, prompt_altered); unverified (no record could be read, so nothing shows what was sent; Codex's own report cannot make it exact).
+alpha (for --transparent, and for any picture that came with an alpha channel, which a prompt or a reference can bring without it): {{"has_alpha", "transparent_share"}}: whether the PNG has an alpha channel, and the share of fully transparent pixels.
+
+The ledger, imagegen.json: read it directly; write judgments with imagenote.
+{{"schema": 1, "created", "sheet_opened"?, "names": [{{"name", "notes": [{{"text", "at"}}], "requests": [{{"r", "created", "prompt", "refs": [{{"path" (relative to DIR), "sha256"}}], "transparent", "label"?, "attempts": [{{"id", "status", "started", "pid"? (while running: the command's), "elapsed_s"?, "file"? (relative to DIR), "w"?, "h"?, "alpha"?, "verbatim"?, "retried"? {{"thread_id", "elapsed_s", "verbatim"}}, "thread_id"?, "detail"? {{"stage", "code", "message", "categories", "generations" (more than one picture in the call; the last was taken), "returncode", "agent_message", "log" (Codex's session record of the try), "observed", "refs_sent" (the references Codex received, when their hashes differ from refs), "note"}}, "chosen"?, "critique"?, "notes"?}}]}}]}}]}}
+
+Exits: 0 at least one picture ok; 1 codex is missing or not logged in (nothing is attempted; `codex login` needs the user's browser), or no try came out ok (`error`); 2 the command line must change: no prompt on stdin, a NAME or DIR refused as above, --again with --ref, --transparent or --label, a --ref missing, a reference of --again missing or changed, or an IMAGE not in the ledger.
+"""
+
+
+IMAGENOTE_DESC = """\
+Write a judgment of pictures imagegen made into DIR's ledger and redraw the contact sheet: which picture the user chose, what they said in their own words, and Claude's assessment. The ledger is written only under its lock, which a running imagegen also takes, and the sheet follows each write, so judgments go through this command rather than by editing imagegen.json.
+TARGET is a picture id (mic-2) or a name (mic). --choose, --unchoose and --critique take a picture; --note takes either.
+--choose marks the picture chosen (several under one name are allowed; only an ok picture). --unchoose clears the mark. Both succeed when the picture is already so.
+--note appends, never replaces: the user's words as they said them, or a fact that must be kept.
+--critique replaces Claude's current assessment of the picture.
+On the sheet: a chosen picture is outlined and tagged 선택; its assessment and notes show under it, and a name's notes at the top of its section.
+Prints: {"written": [what changed, in words], "sheet", "ledger"}.
+Exits: 0 written (or already so); 2 nothing to write, no ledger in DIR, a TARGET not in it, --choose on a picture that is not ok, or --choose, --unchoose or --critique on a name.
 """
 
 
@@ -271,6 +334,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--duration", type=positive, metavar="S", help=".mov: length in seconds (default: the page's window.duration)")
     p.add_argument("--frame-at", type=non_negative, default=0.0, metavar="T", help=".png: the page time to capture, in seconds (default 0); page time, not a timeline position")
     p.set_defaults(run=run_graphic)
+
+    p = sub.add_parser("imagegen", help="pictures generated with gpt-image through the user's Codex login, every try kept in a ledger and on a contact sheet", description=IMAGEGEN_DESC, formatter_class=fmt)
+    p.add_argument("name", metavar="NAME", help="what the picture is (mic, sky); its files are NAME-1.png, NAME-2.png, … Refused: empty, a path separator or control character, a leading dot, a trailing -<number>, or a name that differs only in case from one already in DIR")
+    p.add_argument("--dir", type=Path, required=True, metavar="DIR", help="the folder for the pictures, the ledger and the sheet (made if missing); by this skill's convention <piece>/graphics/imagegen")
+    p.add_argument("--ref", type=Path, action="append", default=[], metavar="IMG", help="a picture sent with the prompt; repeatable. The model carries over a reference's palette, lettering and layout even when told to take only its style; to change one thing in a picture given as a reference, name that change and list everything that must stay, since \"keep everything else\" alone does not hold it")
+    p.add_argument("--transparent", action="store_true", help="ask for a transparent background; the result reports whether the PNG has alpha")
+    p.add_argument("--label", metavar="TEXT", help="one line saying what this request tries, or what it changes from the one before; the sheet shows it instead of the folded prompt")
+    p.add_argument("--again", metavar="IMAGE", help="more tries of the request that made IMAGE (NAME-k); no stdin, no --ref, --transparent or --label")
+    p.add_argument("--n", type=int, default=1, choices=range(1, imagegen.CONCURRENCY + 1), metavar="K", help=f"tries of this request, 1-{imagegen.CONCURRENCY} (default 1), run at once")
+    p.add_argument("--timeout", type=positive, default=imagegen.TIMEOUT_S, metavar="S", help=f"seconds one try may take, its retry included (default {imagegen.TIMEOUT_S})")
+    p.set_defaults(run=run_imagegen)
+
+    p = sub.add_parser("imagenote", help="record which generated picture the user chose, what they said, and your assessment", description=IMAGENOTE_DESC, formatter_class=fmt)
+    p.add_argument("target", metavar="TARGET", help="a picture id (mic-2) or a name (mic)")
+    p.add_argument("--dir", type=Path, required=True, metavar="DIR", help="the folder imagegen wrote to")
+    pick = p.add_mutually_exclusive_group()
+    pick.add_argument("--choose", dest="choose", action="store_const", const=True, help="mark the picture as chosen by the user")
+    pick.add_argument("--unchoose", dest="choose", action="store_const", const=False, help="clear that mark")
+    p.add_argument("--note", action="append", default=[], metavar="TEXT", help="append a note: the user's words as said, or a fact to keep; repeatable")
+    p.add_argument("--critique", metavar="TEXT", help="your current assessment of the picture, replacing the previous one")
+    p.set_defaults(run=run_imagenote)
     return root
 
 
@@ -292,6 +376,28 @@ def run_graphic(a) -> dict:
         raise InputError("--sequence needs --project or --bridge")
     source = source_of(a) if a.size is None else None
     return graphic.render(a.page.resolve(), a.out.resolve(), source=source, size=a.size, rate=a.fps, sequence=a.sequence, duration=a.duration, frame_at=a.frame_at)
+
+
+def run_imagegen(a) -> dict:
+    folder = Path(os.path.abspath(a.dir))
+    if a.again is not None:
+        used = [flag for flag, on in (("--ref", a.ref), ("--transparent", a.transparent), ("--label", a.label is not None)) if on]
+        if used:
+            raise InputError(f"{', '.join(used)} cannot go with --again, which repeats the request as it was recorded")
+        prompt = None
+    else:
+        if sys.stdin is None or sys.stdin.isatty():
+            raise InputError("the prompt is read from stdin; pipe or heredoc it in (or use --again IMAGE)")
+        prompt = sys.stdin.read().strip()
+        if not prompt:
+            raise InputError("the prompt on stdin is empty")
+    return imagegen.generate(folder, a.name, prompt=prompt, refs=[Path(os.path.abspath(r)) for r in a.ref], transparent=a.transparent, label=a.label, again=a.again, n=a.n, timeout=a.timeout)
+
+
+def run_imagenote(a) -> dict:
+    if a.choose is None and not a.note and a.critique is None:
+        raise InputError("nothing to write: give --choose, --unchoose, --note or --critique")
+    return imagegen.note(Path(os.path.abspath(a.dir)), a.target, choose=a.choose, notes=a.note, critique=a.critique)
 
 
 def run_doctor(a) -> dict:
