@@ -39,7 +39,7 @@ def words_line(item, spec):
         {"text": t, "start": int(a * TICKS), "end": int(b * TICKS)} for t, a, b in spec]}}}
 
 
-# -- How the CLI fails quietly -------------------------------------------------------------------------------------------
+# -- How filmcraft-cli fails quietly --------------------------------------------------------------------------------------
 
 def test_01_an_edit_without_save_is_gone_next_call(proj):
     """SKILL.md › Headless or the running app: there is no autosave, so saving is yours; every call is a new session and without --save the edit disappears."""
@@ -50,7 +50,7 @@ def test_01_an_edit_without_save_is_gone_next_call(proj):
 
 
 def test_02_a_run_with_a_failing_line_saves_nothing(proj):
-    """SKILL.md › How the CLI fails quietly: a `run` stops at the first failing line before saving (unless --keep-going)."""
+    """SKILL.md › How filmcraft-cli fails quietly: a `run` stops at the first failing line before saving (unless --keep-going)."""
     d, p = proj
     rows = fc_run([{"id": "markers.add", "params": {"name": "kept?"}}, {"id": "nope.command", "params": {}}], p, save=True, cwd=d, check=False)
     assert rows[0]["ok"] and not rows[1]["ok"]
@@ -58,7 +58,7 @@ def test_02_a_run_with_a_failing_line_saves_nothing(proj):
 
 
 def test_03_an_unknown_option_is_ignored_and_the_session_is_empty(proj):
-    """SKILL.md › How the CLI fails quietly: an unknown option (other than under `mcp`) is ignored without an error, so a misspelt --bridge runs on an empty headless session."""
+    """SKILL.md › How filmcraft-cli fails quietly: an unknown option (other than under `mcp`) is ignored without an error, so a misspelt --bridge runs on an empty headless session."""
     d, p = proj
     r = fc("--brige=127.0.0.1:9", "inspect", "project", cwd=d)
     assert r.returncode == 0
@@ -66,7 +66,7 @@ def test_03_an_unknown_option_is_ignored_and_the_session_is_empty(proj):
 
 
 def test_04_a_float_time_is_ignored(proj):
-    """SKILL.md › How the CLI fails quietly: `time` takes integer ticks; a float there is silently treated as absent (`razor` then reports cuts:0)."""
+    """SKILL.md › How filmcraft-cli fails quietly: `time` takes integer ticks; a float there is silently treated as absent (`razor` then reports cuts:0)."""
     d, p = proj
     assert fc_json("exec", "timeline.razor", '{"time": 3.5}', project=p, cwd=d) == {"cuts": 0}
     assert fc_json("exec", "timeline.razor", '{"seconds": 3.5}', project=p, cwd=d)["cuts"] == 2
@@ -152,7 +152,7 @@ def box_height(png) -> int:
 
 
 def test_05_default_caption_font_is_inter_and_has_no_hangul(tmp_path):
-    """SKILL.md › How the CLI fails quietly, and `captions --help`: captions (and text layers) default to Inter, which has no Hangul; set a Korean family on every caption track and text layer."""
+    """SKILL.md › How filmcraft-cli fails quietly, and `captions --help`: captions (and text layers) default to Inter, which has no Hangul; set a Korean family on every caption track and text layer."""
     srt = "1\n00:00:01,000 --> 00:00:03,000\n한글 자막\n"
     p = caption_project(tmp_path, "640x360", srt)
     assert fc_json("exec", "captions.list", project=p, cwd=tmp_path)["tracks"][0]["style"]["font"] == "Inter"
@@ -218,7 +218,7 @@ def test_15_loudness_target_is_met(proj):
 # -- Command families by job ---------------------------------------------------------------------------------------------
 
 def test_17_narration_speaks_english_only(proj):
-    """SKILL.md › How the CLI fails quietly: tts voices are English (en-US); Korean text is refused ("nothing to say"), so Korean narration has to come from elsewhere."""
+    """SKILL.md › How filmcraft-cli fails quietly: tts voices are English (en-US); Korean text is refused ("nothing to say"), so Korean narration has to come from elsewhere."""
     d, p = proj
     voices = fc_json("exec", "tts.voices", cwd=d)
     assert [l["id"] for l in voices["languages"]] == ["en-US"]
@@ -292,7 +292,7 @@ def centre(png) -> tuple:
 
 
 def test_20_compositing_is_in_linear_light(tmp_path):
-    """SKILL.md › Graphics and motion graphics: FilmCraft composites in linear light, so a partly transparent layer comes out lighter over a dark picture than in a browser or an ffmpeg (sRGB) blend; judge how a graphic sits from a FilmCraft render. Expected: 50 % red over the measured background, blended in linear light by the sRGB transfer function (an sRGB blend would give about (128, 0, 127))."""
+    """SKILL.md › Where a picture is made: FilmCraft composites in linear light, so a partly transparent layer comes out lighter over a dark picture than in a browser or an ffmpeg (sRGB) blend; judge how a graphic sits from a FilmCraft render. Expected: 50 % red over the measured background, blended in linear light by the sRGB transfer function (an sRGB blend would give about (128, 0, 127))."""
     ffmpeg("-f", "lavfi", "-i", "color=c=0x0000ff:s=640x360:r=30:d=4", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", str(tmp_path / "blue.mp4"))
     Image.new("RGBA", (640, 360), (255, 0, 0, 128)).save(tmp_path / "red50.png")
     p = tmp_path / "p.fcproj"
@@ -309,7 +309,7 @@ def test_20_compositing_is_in_linear_light(tmp_path):
 
 
 def test_21_placing_media_with_sound_overwrites_the_targeted_audio_track(tmp_path):
-    """SKILL.md › How the CLI fails quietly: `timeline.place` puts a clip's sound on the targeted audio track (A1 by default), overwriting the speech there, unless `audioTrack` names another; `"audioTrack": "new"` leaves A1 whole, and `graphics.newFromFile` places the picture without its sound."""
+    """SKILL.md › How filmcraft-cli fails quietly: `timeline.place` puts a clip's sound on the targeted audio track (A1 by default), overwriting the speech there, unless `audioTrack` names another; `"audioTrack": "new"` leaves A1 whole, and `graphics.newFromFile` places the picture without its sound."""
     make_av(tmp_path / "talk.mp4", 4, rate="30", size="640x360")
     prores_4444(tmp_path / "g.mov", 3, tone_hz=1000)
 
@@ -357,7 +357,7 @@ def test_22_a_file_rewritten_at_the_same_path_is_read_anew(tmp_path):
 
 
 def test_23_a_placed_clip_keeps_the_length_and_streams_read_at_import(tmp_path):
-    """`graphic --help` and its `next` (re-placing after a re-render): the project keeps the length and sound streams it read when the file was imported. Rewritten at the same path, a longer render still plays only the old length, a shorter one holds its last frame to the old end with its sound silent there, sound added to a silent render is not heard (no sound clip was made), and a render that lost its sound plays silence; `media.refreshChanged` changes none of it. So a placed render whose length or sound changed is cleared and placed again."""
+    """`graphic --help` and its `next` (re-placing after a re-render), and SKILL.md › Where a picture is made: the project keeps the length and sound streams it read when the file was imported. Rewritten at the same path, a longer render still plays only the old length, a shorter one holds its last frame to the old end with its sound silent there, sound added to a silent render is not heard (no sound clip was made), and a render that lost its sound plays silence; `media.refreshChanged` changes none of it. So a placed render whose length or sound changed is cleared and placed again."""
     ffmpeg("-f", "lavfi", "-i", "color=c=black:s=640x360:r=30:d=6", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(tmp_path / "bg.mp4"))
 
     def place(name, seconds, tone):
@@ -440,7 +440,7 @@ def test_24_an_sdr_overlay_lands_at_reference_white_in_an_hdr_sequence(tmp_path)
 # -- what SKILL.md says quietly goes wrong, checked with small synthetic clips -------------------------------------------------
 
 def test_25_a_track_named_by_string_is_ignored(proj):
-    """SKILL.md › How the CLI fails quietly: `graphics.*` take `track` as a 0-based index; a string like "V3" is ignored without an error and the layer lands on the first free track."""
+    """SKILL.md › How filmcraft-cli fails quietly: `graphics.*` take `track` as a 0-based index; a string like "V3" is ignored without an error and the layer lands on the first free track."""
     d, p = proj
     assert fc_run([{"id": "sequence.addTracks", "params": {"video": 2}}, {"id": "graphics.newText", "params": {"text": "HI", "track": "V3", "seconds": 1}}], p, cwd=d)[-1]["ok"]
     assert [[c["name"] for c in t.get("items") or []] for t in fc_json("inspect", "sequence", project=p, cwd=d)["video"]][1:] == [["HI"], []]
@@ -454,7 +454,7 @@ def test_26_a_track_named_by_index_is_used(proj):
 
 
 def test_27_time_remapping_keyframes_do_not_render(proj, tmp_path):
-    """SKILL.md › How the CLI fails quietly: keyframing Time Remapping's speed reports success and the frame at 3 s is unchanged, where three times the speed would show a later frame."""
+    """SKILL.md › How filmcraft-cli fails quietly: keyframing Time Remapping's speed reports success and the frame at 3 s is unchanged, where three times the speed would show a later frame."""
     d, p = proj
     before = tmp_path / "before.png"
     fc("render", "--seconds", "3.0", "--out", str(before), "--scale", "0.25", project=p, cwd=d)
@@ -467,7 +467,7 @@ def test_27_time_remapping_keyframes_do_not_render(proj, tmp_path):
 
 
 def test_28_an_fcp7_xml_merges_and_takes_over_the_active_sequence(proj):
-    """SKILL.md › How the CLI fails quietly: importing an FCP7 XML adds to the open project and makes its sequence the active one, so later commands act on it."""
+    """SKILL.md › How filmcraft-cli fails quietly: importing an FCP7 XML adds to the open project and makes its sequence the active one, so later commands act on it."""
     d, p = proj
     xml = d / "h.xml"
     assert fc_run([{"id": "file.exportFcp7Xml", "params": {"path": str(xml)}}], p, cwd=d)[0]["ok"]
@@ -481,7 +481,7 @@ def test_28_an_fcp7_xml_merges_and_takes_over_the_active_sequence(proj):
 
 
 def test_29_a_filmcraft_graphic_does_not_survive_an_fcp7_handoff(proj):
-    """SKILL.md › Graphics and motion graphics: the XML names a FilmCraft text layer but has no file for it, so reading the XML back skips the layer."""
+    """SKILL.md › Where a picture is made: the XML names a FilmCraft text layer but has no file for it, so reading the XML back skips the layer."""
     d, p = proj
     xml = d / "h.xml"
     rows = fc_run([{"id": "sequence.addTracks", "params": {"video": 1}}, {"id": "graphics.newText", "params": {"text": "HELLOTEXT", "track": 1, "seconds": 1}}, {"id": "file.exportFcp7Xml", "params": {"path": str(xml)}}], p, cwd=d)
@@ -491,7 +491,7 @@ def test_29_a_filmcraft_graphic_does_not_survive_an_fcp7_handoff(proj):
 
 
 def test_30_heic_is_refused_without_naming_the_format(tmp_path):
-    """SKILL.md › How the CLI fails quietly: a HEIC is refused with a container error that does not name the format. (Stills have honoured EXIF rotation since 0.20: a 64x32 JPEG tagged to display as 32x64 makes a 32x64 sequence; checked here so the deleted sentence stays deleted for a reason.)"""
+    """SKILL.md › How filmcraft-cli fails quietly: a HEIC is refused with a container error that does not name the format. (Stills have honoured EXIF rotation since 0.20: a 64x32 JPEG tagged to display as 32x64 makes a 32x64 sequence; checked here so the deleted sentence stays deleted for a reason.)"""
     d = tmp_path
     exif = Image.Exif()
     exif[0x0112] = 6

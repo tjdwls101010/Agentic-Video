@@ -1,6 +1,6 @@
-# Agentic-Video: FilmCraft 편집 + 코드 그래픽 스킬
+# Agentic-Video: FilmCraft 편집 + EffectCraft 합성 + 코드 그래픽 스킬
 
-이 맥에 설치된 [FilmCraft](https://github.com/storytold/filmcraft)(어도비 프리미어 프로를 클론한 오픈소스 편집기)를 Claude Code가 직접 다루게 하는 프로젝트 스킬입니다. "이 영상으로 ○○ 만들어줘"라고 하면, Claude가 사용자와 의논하며 편집합니다. 타이틀·자료 화면·인트로 같은 그래픽과 효과음은 Claude가 코드(HTML/CSS/SVG/Canvas, Web Audio)로 직접 디자인해 투명 영상으로 렌더하고 타임라인에 얹습니다. 결과물은 검수를 통과한 영상과, 사용자가 FilmCraft에서 다시 열어 고칠 수 있는 `.fcproj` 프로젝트, 그리고 다시 고쳐 렌더할 수 있는 그래픽 페이지입니다.
+이 맥에 설치된 [FilmCraft](https://github.com/storytold/filmcraft)(어도비 프리미어 프로를 클론한 오픈소스 편집기)와 같은 팀의 합성 도구 [EffectCraft](https://github.com/storytold/effectcraft)(애프터 이펙트를 클론한 오픈소스 합성기)를 Claude Code가 직접 다루게 하는 프로젝트 스킬입니다. 사람 편집자가 프리미어와 애프터 이펙트를 오가듯, Claude가 일에 맞는 쪽을 골라 씁니다. "이 영상으로 ○○ 만들어줘"라고 하면, Claude가 사용자와 의논하며 편집합니다. 타이틀·자료 화면·인트로 같은 그래픽과 효과음은 Claude가 코드(HTML/CSS/SVG/Canvas, Web Audio)로 디자인하거나 EffectCraft 컴포지션으로 만들어 투명 영상으로 렌더하고 타임라인에 얹습니다. 결과물은 검수를 통과한 영상과, 사용자가 다시 열어 고칠 수 있는 FilmCraft `.fcproj`·EffectCraft `.ecproj` 프로젝트, 그리고 다시 고쳐 렌더할 수 있는 그래픽 페이지입니다.
 
 - 스킬 본문: [`.claude/skills/video/SKILL.md`](.claude/skills/video/SKILL.md)(영어, 모델이 읽는 글)
 - 번들 도구: [`.claude/skills/video/scripts/cli.py`](.claude/skills/video/scripts/cli.py)
@@ -17,7 +17,8 @@
 | 몽타주·B-roll | 클립 훑어보기, 장면 전환 감지, 음악 박자 측정과 컷 맞춤, 배경음악 더킹 |
 | 그래픽·모션 그래픽 | 타이틀, 로워서드, 콜아웃, 숫자·데이터 그래픽, 기사 캡처 같은 자료 화면 연출, 그라디언트 바 같은 레이아웃 요소, 인트로를 코드로 디자인해 얹기 |
 | 효과음 | 그래픽과 같은 페이지에서 Web Audio로 합성해 그 프레임에 붙여 넣기 |
-| 단독 모션 그래픽 | 원본 영상 없이 코드로 만든 모션 그래픽 영상(인트로, 스팅 등) |
+| 단독 모션 그래픽 | 원본 영상 없이 코드나 EffectCraft 컴포지션으로 만든 모션 그래픽 영상(인트로, 스팅 등) |
+| 합성·VFX(EffectCraft) | 대상을 따라가는 이름표(모션 트래킹), 사람 뒤로 지나가는 글자(Object Matte·Roto Brush 매트), 키잉, 레이어 합성. 편집을 인터체인지 XML로 넘겨 받아 작업하고 알파 렌더나 교체 클립으로 돌려놓기 |
 | 색보정 | 스코프 수치로 중립 보정, S-Log3 등 로그 소스에 입력 LUT 적용 |
 | 납품·검수 | 유튜브·쇼츠·릴스·틱톡·한국 방송 기준 기술 검수(라우드니스·트루피크·해상도·fps·길이·faststart), 유튜브 챕터 |
 | 다른 편집기로 넘기기 | Premiere·Resolve용 FCP7 XML, OTIO, AAF/OMF, EDL |
@@ -46,8 +47,10 @@
 | Apple Silicon | 로컬 음성 인식(`--engine local`, mlx-whisper)에 필요 |
 | OpenRouter 키 | 기본 전사 엔진에 필요. 없으면 `--engine local`. 아래 참고 |
 | 한글 폰트 | `filmcraft-cli exec fonts.list`에 Apple SD Gothic Neo 또는 Noto Sans KR |
+| EffectCraft 앱과 같은 버전의 `effectcraft-cli` (선택) | 합성·추적·매트가 필요할 때만. macOS의 CLI는 앱에 들어 있지 않고 릴리스 자산(`effectcraft-cli-<버전>-macos-universal.zip`)으로 따로 받습니다. `doctor`가 명령을 줍니다 |
+| 학습 매트 모델 (선택) | 사람 같은 대상을 화면에서 깨끗하게 분리할 때. 내장 엔진은 모양으로만 구분되는 대상에서 빈 매트를 냅니다. MobileSAM(약 40 MB)은 `effectcraft-cli exec roto.model.download --params '{"id":"mobilesam","wait":true}'`로 받고(SAM 2는 가중치 파일로만 설치), 작품 폴더 밖 EffectCraft 데이터 폴더에 남습니다. Claude는 내려받기 전에 먼저 묻습니다 |
 
-`doctor`가 이 표의 대부분을 점검하고, 고칠 명령을 버전까지 채워 줍니다. 설치는 하지 않습니다. 앱보다 새 CLI로 저장한 프로젝트는 앱이 열지 못할 수 있어 CLI 버전이 앱과 다르면 실패로 봅니다.
+`doctor`가 이 표의 대부분을 점검하고, 고칠 명령을 버전까지 채워 줍니다. 설치는 하지 않습니다. 앱보다 새 CLI로 저장한 프로젝트는 앱이 열지 못할 수 있어 CLI 버전이 앱과 다르면 실패로 봅니다. EffectCraft는 선택 항목이라 전체 판정을 실패로 만들지 않지만, 앱 옆에 CLI가 없거나 버전이 다르면 설치 명령을 줍니다.
 
 ```bash
 uv run .claude/skills/video/scripts/cli.py doctor
@@ -84,6 +87,7 @@ OpenRouter 키는 환경변수 `OPENROUTER_API_KEY`가 있으면 그것을, 없�
 - "S-Log로 찍은 거 자연스럽게 보정해서 마스터 뽑아줘"
 - "아기 발진 얘기 나오는 대목에 이 기사 캡처 띄우고, 말하는 타이밍에 헤드라인에 형광펜 그어줘"
 - "채널 로고로 3초짜리 인트로 만들어 줘. 효과음도"
+- "이 인터뷰에서 말하는 사람 뒤로 이름이 지나가게 해 줘"
 
 다른 프로젝트 폴더에서 쓰려면 그 프로젝트의 `.claude/skills/video`를 이 레포의 스킬 폴더로 심볼릭 링크합니다. 이름으로 부르려면 `/video`.
 
@@ -128,7 +132,7 @@ data/
     ├── <이름>.fcproj         FilmCraft 프로젝트
     ├── <결과물>.mp4          내보낸 결과물(딸린 자막·인계 파일도 여기)
     ├── assets/              가져온 재료. 공용 재료는 복사(APFS 복제)해 와서 작품 폴더만으로 프로젝트가 열림
-    ├── graphics/            코드로 만든 그래픽의 페이지(HTML)와 렌더. 프로젝트가 재생하므로 지우지 않음
+    ├── graphics/            그래픽의 원본(HTML 페이지, EffectCraft `.ecproj`)과 렌더. 프로젝트가 재생하므로 지우지 않음
     ├── etc/                 그 밖: 다른 도구 파일, 다시 쓸 전사·자막 원고. 일회용 파일은 끝날 때 지움
     └── FilmCraft Previews/  FilmCraft가 자동으로 만드는 렌더 캐시(결과물 아님)
 ```
@@ -160,11 +164,12 @@ data/
     ├── cli.py               유일한 진입점(파서·도움말·종료 코드)
     └── video/               유일한 패키지
         ├── transcribe/ waveform/ captions/ timeline/ frames/ qc/ graphic/ doctor/   기능
-        ├── filmcraft/ whisper/ openrouter/ ffmpeg/ mp4/ chrome/ subrip.py           외부 시스템·형식
+        ├── filmcraft/ effectcraft/ whisper/ openrouter/ ffmpeg/ mp4/ chrome/ subrip.py   외부 시스템·형식
         └── recognition.py timecode.py errors.py                                     공용
 tests/
 ├── video_skill/             번들 도구 테스트(명령 프로토콜, 순수 코어, 구조 규칙)
 ├── filmcraft_facts/         스킬이 기대는 FilmCraft 동작
+├── effectcraft_facts/       스킬이 기대는 EffectCraft 동작과 두 앱 사이 왕복
 └── support/                 테스트 공용 도우미
 .mcp.json                    실행 중인 앱용 브리지 MCP
 ```
@@ -176,15 +181,16 @@ tests/
 ```bash
 uv run --with pytest --with pillow --with playwright pytest      # 전부
 uv run --with pytest --with pillow pytest tests/filmcraft_facts # FilmCraft 사실만
+uv run --with pytest --with pillow pytest tests/effectcraft_facts  # EffectCraft 사실만(매트는 -m slow, 1분 남짓)
 FILMCRAFT_TEST_WHISPER=1 uv run --with pytest --with pillow pytest -k real_whisper  # 실제 Whisper 경로
 FILMCRAFT_TEST_OPENROUTER=1 uv run --with pytest --with pillow pytest -k real_openrouter  # 실제 OpenRouter 경로(약 1센트)
 ```
 
 - 테스트 미디어는 ffmpeg와 macOS `say`로 그때그때 만듭니다. 기대값은 생성 조건이나 표준(EBU Tech 3341, SMPTE 드롭프레임)에서 옵니다. 공급자 응답 픽스처는 합성 음성에서만 기록했습니다.
 - OpenRouter 테스트는 항상 가짜 키와 로컬 서버를 쓰므로 실제 키가 쓰이지 않습니다. 게이트 테스트만 실제 API를 부릅니다.
-- filmcraft-cli가 없으면 해당 테스트는 이유를 출력하며 건너뜁니다. `test_chrome.py`는 Chrome을 테스트 프로세스 안에서 구동하므로 `--with playwright`가 없으면 건너뜁니다. `graphic` 테스트는 진입점을 `uv run`으로 부르므로 PEP 723 헤더가 Playwright를 공급합니다.
+- filmcraft-cli나 effectcraft-cli가 없으면 해당 테스트는 이유를 출력하며 건너뜁니다. 매트 테스트는 이 맥에 설치된 MobileSAM을 쓰고 내려받지 않으며, 모델이 없으면 건너뜁니다. `test_chrome.py`는 Chrome을 테스트 프로세스 안에서 구동하므로 `--with playwright`가 없으면 건너뜁니다. `graphic` 테스트는 진입점을 `uv run`으로 부르므로 PEP 723 헤더가 Playwright를 공급합니다.
 
-**FilmCraft는 1~2일마다 업데이트됩니다.** 업데이트 뒤 `tests/filmcraft_facts`가 실패하면, 실패한 테스트의 docstring이 가리키는 SKILL.md 문장(또는 `--help` 문구)을 고치거나 지우세요. 테스트를 느슨하게 고치는 것으로 해결하면 안 됩니다.
+**FilmCraft와 EffectCraft는 1~2일마다 업데이트됩니다.** 업데이트 뒤 `tests/filmcraft_facts`나 `tests/effectcraft_facts`가 실패하면, 실패한 테스트의 docstring이 가리키는 SKILL.md 문장(또는 `--help` 문구)을 고치거나 지우세요. 테스트를 느슨하게 고치는 것으로 해결하면 안 됩니다.
 
 ## 한계
 
@@ -193,6 +199,8 @@ FILMCRAFT_TEST_OPENROUTER=1 uv run --with pytest --with pillow pytest -k real_op
 - 전사 엔진 비교의 근거는 영어 다큐 1편입니다. 실제 한국어 음성, 음악 위 단어 시간, Gemini 계열 모델은 검증하지 않았습니다.
 - 이 FilmCraft 빌드는 자체 음성 인식이 없고, 내레이션(TTS)은 영어만 됩니다.
 - 세이프존 수치는 플랫폼의 광고 가이드 기준입니다. 일반 게시물 UI와는 조금 다를 수 있습니다.
+- EffectCraft는 스스로 알파 단계라고 밝힌 젊은 앱이고, 이 스킬은 헤드리스(`effectcraft-cli`)로만 씁니다. 실행 중인 EffectCraft 앱을 보며 함께 작업하는 브리지는 지원하지 않습니다.
+- HLG 같은 HDR 원본은 EffectCraft 기본 설정에서 FilmCraft와 다르게 해석되어, EffectCraft를 거쳐 돌아온 클립의 색이 바뀝니다.
 - 그래픽의 색은 FilmCraft 안에서 왕복이 맞도록 BT.709로 태그합니다. Premiere 같은 다른 플레이어에서의 미세한 감마 차이는 확인하지 않았습니다.
 
 ## 라이선스

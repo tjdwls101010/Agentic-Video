@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -11,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from video import doctor, filmcraft, openrouter, whisper
+from video import doctor, effectcraft, filmcraft, openrouter, whisper
 from support import CLI, skill
 
 FAKE_KEY = "sk-test-doctor-0123456789-SECRET"
 
 
 def facts(**over):
-    base = dict(cli_version="0.14.0", app_version="0.14.0", ffmpeg=True, ffprobe=True, uvx=True, whisper_cached=True, key_source="file", chrome=True)
+    base = dict(cli_version="0.14.0", app_version="0.14.0", ffmpeg=True, ffprobe=True, uvx=True, whisper_cached=True, key_source="file", chrome=True, ec_cli_version="0.24.1", ec_app_version="0.24.1")
     return doctor.Facts(**{**base, **over})
 
 
@@ -29,8 +30,8 @@ def check(result, name):
 def test_everything_present_is_ok_with_nothing_to_do():
     r = doctor.judge(facts())
     assert r["ok"] is True and r["next"] == []
-    assert [c["name"] for c in r["checks"]] == ["filmcraft_cli", "ffmpeg", "ffprobe", "uvx", "whisper_model", "openrouter_key", "chrome"]
-    assert {c["name"]: c["required"] for c in r["checks"]} == {"filmcraft_cli": True, "ffmpeg": True, "ffprobe": True, "uvx": True, "whisper_model": False, "openrouter_key": False, "chrome": False}
+    assert [c["name"] for c in r["checks"]] == ["filmcraft_cli", "ffmpeg", "ffprobe", "uvx", "whisper_model", "openrouter_key", "chrome", "effectcraft_cli"]
+    assert {c["name"]: c["required"] for c in r["checks"]} == {"filmcraft_cli": True, "ffmpeg": True, "ffprobe": True, "uvx": True, "whisper_model": False, "openrouter_key": False, "chrome": False, "effectcraft_cli": False}
 
 
 def test_a_cli_behind_the_app_fails_and_next_installs_the_apps_version():
@@ -101,6 +102,78 @@ def test_the_key_check_reports_only_where_the_key_is(source):
     assert check(doctor.judge(facts(key_source=source)), "openrouter_key")["value"] == source
 
 
+# -- EffectCraft: optional, so it never fails the whole check and stays out of `next`, but a CLI that does not match the app gets its install command in its own check ----
+
+def test_no_effectcraft_at_all_is_optional_with_nothing_to_run():
+    r = doctor.judge(facts(ec_cli_version=None, ec_app_version=None))
+    c = check(r, "effectcraft_cli")
+    assert r["ok"] is True and r["next"] == [] and "next" not in c
+    assert c["ok"] is False and c["required"] is False and c["value"] == "not installed" and "EffectCraft" in c["why"]
+
+
+def test_an_effectcraft_app_without_its_cli_gets_the_apps_release_asset():
+    """The CLI is a separate release asset, which is why its install command is named even though the item is optional."""
+    r = doctor.judge(facts(ec_cli_version=None, ec_app_version="0.24.1"))
+    c = check(r, "effectcraft_cli")
+    assert r["ok"] is True and c["ok"] is False and c["value"] == "not installed (app 0.24.1)" and "separate" in c["why"]
+    assert "effectcraft-cli-0.24.1-macos-universal.zip" in " ".join(c["next"]) and r["next"] == []
+
+
+def test_an_effectcraft_cli_without_the_app_passes_for_headless_work():
+    r = doctor.judge(facts(ec_cli_version="0.24.1", ec_app_version=None))
+    c = check(r, "effectcraft_cli")
+    assert r["ok"] is True and c["ok"] is True and c["value"] == "0.24.1 (no app: headless only)" and r["next"] == [] and "next" not in c
+
+
+def test_a_matching_effectcraft_cli_passes():
+    c = check(doctor.judge(facts()), "effectcraft_cli")
+    assert c["ok"] is True and c["value"] == "0.24.1 (app 0.24.1)"
+
+
+@pytest.mark.parametrize("cli", ["0.25.0", "0.23.0"])
+def test_a_mismatched_effectcraft_cli_fails_its_item_only_and_its_check_installs_the_apps_version(cli):
+    """The command sits in the check, not in `next`: `next` is what the first command needs, and a FilmCraft-only session must not read an optional install as asked for."""
+    r = doctor.judge(facts(ec_cli_version=cli, ec_app_version="0.24.1"))
+    c = check(r, "effectcraft_cli")
+    assert r["ok"] is True and r["next"] == [] and c["ok"] is False and c["value"] == f"{cli} (app 0.24.1)" and "open" in c["why"]
+    joined = " ".join(c["next"])
+    assert "effectcraft-cli-0.24.1-macos-universal.zip" in joined and "v0.24.1" in joined and cli not in joined
+
+
+def test_next_holds_only_required_fixes_when_effectcraft_also_needs_one():
+    r = doctor.judge(facts(cli_version="0.14.0", app_version="0.17.0", ec_cli_version=None, ec_app_version="0.24.1"))
+    assert r["ok"] is False
+    assert len(r["next"]) == 1 and "filmcraft-cli-0.17.0" in r["next"][0] and "effectcraft" not in r["next"][0]
+    assert "effectcraft-cli-0.24.1" in check(r, "effectcraft_cli")["next"][0]
+
+
+def test_effectcraft_install_steps_are_one_command_from_a_temporary_folder():
+    [step] = effectcraft.install_steps("0.24.1")
+    assert step.startswith('cd "$(mktemp -d)" && ')
+    for part in ("gh release download v0.24.1 -R storytold/effectcraft", "-p 'effectcraft-cli-0.24.1-macos-universal.zip'", "-p SHA256SUMS.txt", "shasum -a 256 -c --ignore-missing SHA256SUMS.txt",
+                 "unzip -q effectcraft-cli-0.24.1-macos-universal.zip", "~/.local/bin/effectcraft-cli"):
+        assert part in step
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(shutil.which("gh") is None, reason="gh is needed to read the release")
+def test_effectcraft_install_steps_name_assets_the_installed_release_publishes():
+    """Network: the asset names in the command are checked against the release of the installed app (or CLI), so a renamed asset fails here rather than at the user's install."""
+    cli, app = effectcraft.versions()
+    version = app or cli
+    if version is None:
+        pytest.skip("no EffectCraft installed to name a release")
+    r = subprocess.run(["gh", "release", "view", f"v{version}", "-R", "storytold/effectcraft", "--json", "assets"], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    published = {a["name"] for a in json.loads(r.stdout)["assets"]}
+    [step] = effectcraft.install_steps(version)
+    download = next(part for part in step.split(" && ") if part.startswith("gh release download"))
+    named = set(re.findall(r"-p '?([^' ]+)'?", download))
+    assert named and named <= published, (named, published)
+    folder = re.search(r"install -m 755 (\S+)/effectcraft-cli", step).group(1)
+    assert f"{folder}.zip" in published
+
+
 def test_install_steps_are_one_command_from_a_temporary_folder():
     [step] = filmcraft.install_steps("0.17.0")
     assert step.startswith('cd "$(mktemp -d)" && ')
@@ -140,6 +213,8 @@ def test_the_real_entry_point_agrees_with_this_machine(monkeypatch):
     assert check(res, "openrouter_key")["value"] == "env"
     assert check(res, "ffmpeg")["ok"] is (shutil.which("ffmpeg") is not None)
     assert check(res, "uvx")["ok"] is (shutil.which("uvx") is not None)
+    ec = check(res, "effectcraft_cli")
+    assert ec["required"] is False and (ec["value"] != "not installed") is (shutil.which("effectcraft-cli") is not None or Path("/Applications/EffectCraft.app").exists() or (Path.home() / ".local/bin/effectcraft-cli").exists())
 
 
 @pytest.mark.parametrize("body, reason", [("echo 'Library not loaded: libopus' >&2; exit 134", "libopus"), ("exit 3", "exit 3")])
@@ -204,5 +279,5 @@ def test_it_uses_no_network_and_writes_nothing():
 def test_help_explains_every_field():
     code, _, raw, err = skill("doctor", "--help")
     assert code == 0
-    for word in ("filmcraft_cli", "whisper_model", "openrouter_key", "chrome", "next", "Prints:", "Exits:"):
+    for word in ("filmcraft_cli", "whisper_model", "openrouter_key", "chrome", "effectcraft_cli", "next", "Prints:", "Exits:"):
         assert word in raw, word

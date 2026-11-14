@@ -17,7 +17,7 @@ PKG = "video"
 # The kind of every top-level name under video/. A name missing here fails, so a new unit is placed on purpose.
 KINDS = {
     "transcribe": "feature", "captions": "feature", "timeline": "feature", "frames": "feature", "qc": "feature", "graphic": "feature", "waveform": "feature", "doctor": "feature",
-    "filmcraft": "system", "whisper": "system", "ffmpeg": "system", "mp4": "system", "chrome": "system", "subrip": "system", "openrouter": "system",
+    "filmcraft": "system", "effectcraft": "system", "whisper": "system", "ffmpeg": "system", "mp4": "system", "chrome": "system", "subrip": "system", "openrouter": "system",
     "timecode": "shared", "errors": "shared", "recognition": "shared", "__init__": "shared",
 }
 
