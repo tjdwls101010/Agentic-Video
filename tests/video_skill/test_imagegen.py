@@ -736,3 +736,27 @@ def test_a_note_written_while_imagegen_runs_is_kept(env):
     row = env.attempts()[0]
     assert [n["text"] for n in row["notes"]] == [f"note {i}" for i in range(5)]
     assert [a["status"] for a in env.attempts()] == ["ok"] * 5
+
+
+# -- the real Codex ---------------------------------------------------------------------------------------------------------
+
+@pytest.mark.skipif(os.environ.get("FILMCRAFT_TEST_CODEX") != "1", reason="set FILMCRAFT_TEST_CODEX=1 to generate one real picture through Codex (draws on the user's Codex usage limits)")
+@pytest.mark.skipif(shutil.which("codex") is None, reason="codex is not installed")
+def test_real_codex_one_transparent_picture_with_a_reference(tmp_path):
+    """The success path against the installed Codex: the observation (the rollout's generation record) is still where and how the codex unit reads it, the reference reaches image_gen by path with its hash, and --transparent gives real alpha. A Codex update that moves any of these fails here first."""
+    folder = tmp_path / "그림 폴더" / "imagegen"
+    ref = make_ref(tmp_path / "참조 그림.png", colour=(30, 90, 160))
+    prompt = "Square 1:1 aspect ratio. A single blue paper star, flat and simple, in the colour of the reference image, centred on a transparent background. No text."
+    code, out, raw, err = skill("imagegen", "star", "--dir", str(folder), "--ref", str(ref), "--transparent", "--no-open", input=prompt)
+    assert code == 0, raw + err
+    [res] = out["results"]
+    assert res["status"] == "ok" and res["verbatim"] in ("exact", "normalized"), res
+    assert res["alpha"]["has_alpha"] is True and 0 < res["alpha"]["transparent_share"] < 1
+    with Image.open(res["file"]) as im:
+        assert im.mode == "RGBA" and im.size == (res["w"], res["h"])
+    [row] = json.loads((folder / "imagegen.json").read_text())["names"][0]["requests"][0]["attempts"]
+    assert "refs_sent" not in row.get("detail", {})
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    [rollout] = home.glob(f"sessions/**/rollout-*{row['thread_id']}.jsonl")
+    items = [json.loads(l)["payload"]["item"] for l in rollout.read_text().splitlines() if '"image_gen.generation"' in l]
+    assert [i["inputImages"] for i in items if i.get("status") == "completed"][-1] == [{"path": str(ref), "sha256": sha(ref)}]
