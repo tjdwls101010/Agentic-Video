@@ -532,7 +532,24 @@ imagenote TARGET --dir DIR [--choose | --unchoose] [--note TEXT]… [--critique 
 
 ## 측정 원장
 
-(구현 1단계와 6단계에서 채운다)
+실제 Codex 생성 호출 누계: **8회**(1단계). 기준선: 구현 전 `uv run --with pytest --with pillow --with playwright pytest -m "not slow"`가 477 통과(첫 실행의 실패 하나는 이 세션이 막 만든 `imageledger/schema.py`가 KINDS에 없어서였다. 시스템 `python3`의 낡은 Pillow로 돌리면 `test_07_emoji…`가 `get_flattened_data`로 실패하므로 README의 `uv run` 방식이 기준이다).
+
+### 1단계 (2026-11-14, `codex-cli 0.167.1`, 사용자 설정 그대로, 스크래치패드에서 design 봉투로 `codex exec` 직접 호출)
+
+호출: 봉투 4(e1 기본, e2 투명, e3 참조 1장·경로에 한글·공백·이모지, e4 참조 2장), 봉투 없음 2(n1 첫 문장에 비율, n2 비율 없음) — 이 6개는 동시에 돌렸다. 거부 유도 2(r1 실존 인물 체포 사진, r2 디즈니 캐릭터와 로고) — 동시에.
+
+| # | 결과 | 정해지는 것 |
+|---|---|---|
+| M1 | rollout 항목 모양은 0.166.0 기록과 같다: 줄 `type: event_msg`, `payload.type: item_completed`, `payload.item = {type: Extension, kind: image_gen.generation, id, status, revisedPrompt, result(base64 PNG 전체), transparentBackground, failure, savedPath, inputImages?, generationId}`, 시각은 `payload.started_at_ms`·`completed_at_ms`. `inputImages`는 참조가 없으면 키 자체가 없다. 성공 `status`는 `completed`. `--json` 스트림에는 도구 호출이 없다(`thread.started`, 설정 경고 `error` 항목 2, `agent_message`, `turn.completed`). 8회 모두 `codex exec`가 끝난 순간 rollout이 이미 다 써져 있었다(3초 뒤 다시 읽어도 같음) | 관측은 실행 직후 rollout 한 번 읽기. 성공 경로는 rollout만으로 충분하므로 **실행 로그(봉투·이벤트·마지막 메시지)는 임시 폴더에 두고 지운다**. 실패한 시도의 `detail.log`는 그 스레드의 rollout 경로(Codex 폴더에 남는 것)를 가리키고, codex의 stderr 꼬리는 `detail.message`에 옮긴다. 가짜 codex는 이 모양을 쓴다(`result`는 짧은 자리표시) |
+| M2 | e2(`transparent_background`)는 1254×1254 RGBA, 완전 투명 73.1%, 알파 최소 0·최대 255 | `alpha` 보고 그대로(진짜 알파) |
+| M3 | e3·e4 모두 성공. `inputImages[].path`는 넘긴 경로 그대로(한글·공백·이모지 포함), `sha256`은 `shasum -a 256`과 같다 | 참조는 경로를 그대로 넘긴다(ASCII 임시 복사 없음). 관측 해시를 장부 해시와 비교 |
+| M4 | r2: 도구가 1.3초 만에 실패. 생성 항목은 `status: failed`, **`failure: null`**, `savedPath` 없음, `generationId: null`, `transparentBackground: null`. 사유는 같은 스레드의 `custom_tool_call_output` 텍스트에 `image generation failed: http 400 Bad Request: Some("{…\"code\": \"moderation_blocked\", \"moderation_details\": {\"moderation_stage\": \"input\", \"categories\": [\"other\"]}}")` — design이 읽던 0.160대 모양과 같은 구조. Codex의 자기 보고는 `image_path: ""`. r1은 거부되지 않고 그림이 나왔다. 출력 단계 거부는 **재현 못 함**(두 번에서 멈춤) | 실패 사유는 design의 구조 기반 해석(문자열 전체에서 표지 `image generation failed:`를 찾고 `Some(…)` 안의 JSON을 풂)을 유지. `moderation_blocked`면 `refused`, 단계는 `moderation_stage`(없으면 `unknown`). 가짜의 `refuse_input`은 측정한 모양, `refuse_output`은 같은 모양에 단계만 바꾼 **모양 미확인** 시나리오 |
+| M5 | 8회 모두 `revisedPrompt` = rollout 도구 호출 입력의 `prompt`. 봉투 4회는 쓴 프롬프트와도 같다. 봉투 없음: n1은 그대로, **n2는 Codex가 고쳐 넘겼다**("with … shimmering …", 문장 분리) | verbatim은 `revisedPrompt`에 건다(Codex가 넘긴 값이고 이미지 쪽이 고쳐 쓴 값이 아님). 도구 호출 입력(JS 소스)은 파싱하지 않는다. 봉투 유지 |
+| M6 | `codex exec` 전체 26~45초(6개 동시), 도구 자체 15~32초, 입력 거부는 8.7초 | `--help`: 한 장에 보통 30초~1분. `--timeout` 기본 300초(재시도 포함 한 시도의 제한, 관찰 최댓값의 6배 남짓) |
+| M7 | n2(비율을 말하지 않음)는 1672×941 가로로 나왔다(한 번의 관찰) | `--help`: 비율은 프롬프트로만 정해지고 말하지 않으면 모델이 고른다 |
+| M8 | `codex --version`·`codex login status`는 sandbox-exec 정책 아래에서도 같은 답(stderr에 `could not create PATH aliases` 경고). 그러나 샌드박스 없이는 **실행할 때마다 `~/.codex/tmp/arg0-macos/`에 새 디렉터리를 만든다**(`--version`만으로도) | doctor는 codex를 실행하지 않는다: 값은 `installed`/`not installed`(PATH에서 찾기)뿐. 로그인 확인은 `imagegen`이 실행 때 한다 |
+
+측정한 크기(이번 호출 + 부록의 66장): 16:9 = 1672×941, 9:16 = 941×1672, 1:1 = 1254×1254, 4:5 = 1122×1402, 3:1 = 2172×724.
 
 ## 대조 원장
 
