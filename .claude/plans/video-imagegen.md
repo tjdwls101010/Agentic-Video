@@ -364,6 +364,10 @@ imagenote TARGET --dir DIR [--choose | --unchoose] [--note TEXT]… [--critique 
 | 7 | `claude` 읽기 전용 작업자(Sonnet, $0.18, 생성 없음)가 장부와 `--help`만으로 `--again mic-2` 명령(결과가 `mic-8`이 됨), 고른 이유(사용자 메모와 평가), `mic-7`의 만든 방법을 맞게 답했다 |
 | 8 | 최종 리뷰 반영 뒤: `uv run --with pytest --with pillow --with playwright pytest -m "not slow"` 583 통과·3 건너뜀, 종료 코드 0. `FILMCRAFT_TEST_CODEX=1 … -k real_codex` 1 통과(37.5초). `claude plugin validate --strict .claude/skills` 종료 코드 0. `git archive HEAD`에 `.tmp`·`data/`·실행 로그 없음. 실제 Codex 생성 누계 26회 |
 
+### 승인
+
+2026-11-14, 성진님이 SKILL.md 전문을 승인("승인"). 승인은 실제 여러 세션에서의 성능 증거가 아니다.
+
 ## Git
 
 - PR 하나, 이유 하나: "영상에 필요한 그림을 생성해 쓰고 그 이력과 판정을 남긴다". 제목 `feat: video 스킬에 imagegen 이미지 생성과 컨택트 시트 추가`. 이 계획 파일(이름 바꿈 포함)과 README, SKILL.md가 같은 PR에 들어간다.
