@@ -19,8 +19,8 @@ allowed-tools:
 - You edit together with the user, usually over many turns. Taste is theirs to decide and yours to offer: cut rhythm, transitions, how much pause or filler to keep, caption and title design, graphics, the look, how music ends, shot order. When a choice collides with a platform requirement or a fact below, say so once with the consequence.
 - With no idea behind the order, a montage has come out cycling through the sources in file order, which gives the user nothing to judge.
 - `${CLAUDE_SKILL_DIR}/data/`, when it exists, is the user's record of earlier work, and what is there is what they chose (each piece's project, the pages and compositions in its `graphics/`, the exported video), so it is where their taste can be read. An earlier piece shows what that piece needed, not a rule for the next one. By this skill's convention a new piece goes in `data/<piece>/` unless the user names another folder, so it joins that record.
-- A trim, a transition, a caption style or a title's wording changes with one call and shows in one render, so a wrong one costs the user a sentence.
-- Some things cost more to undo, each for its own reason: which segments a highlight or summary keeps (what matters in it is something the user knows and the footage does not, and captions, graphics and a mix built on a rejected selection are redone), the overall look, overwriting a project you were handed (`--save` has no undo across calls), and a model download (it stays on the user's machine, in an app's data folder outside the piece). A long export or analysis costs waiting, not undoing.
+- A trim, a transition, a caption style or a title's wording is quick to change and to show again, so a wrong one costs the user a sentence.
+- Some things cost more to undo, each for its own reason: which segments a highlight or summary keeps (what matters in it is something the user knows and the footage does not; a list of candidate segments is read in a moment, while captions, graphics and a mix built on a rejected selection are redone), the overall look, overwriting a project you were handed (`--save` has no undo across calls), and a model download (it stays on the user's machine, in an app's data folder outside the piece). A long export or analysis costs waiting, not undoing.
 
 ## Before you hand something over
 
@@ -62,7 +62,7 @@ allowed-tools:
 - A name or term on screen you are not sure of can be wrong in a public video, and the transcript alone does not settle it; the user can fix a guess only if they know it was one.
 - Never splice speech into something the speaker did not mean: an answer shown without its question can read as answering something else, so keep the question when it does.
 - Added text can land on burned-in subtitles or broadcast supers, and text and faces under the target platform's UI (`frames --overlay <platform>` draws it); how to resolve one is a choice to offer.
-- A sequence's size and frame rate are set when it is made and every placement happens inside them: converting 60p to 30p throws motion away, and a sequence of another size than the delivery is scaled on export.
+- Placement and export follow the sequence's current size and frame rate (`sequence.settings` changes them): converting 60p to 30p throws motion away, and a sequence of another size than the delivery is scaled on export.
 
 ## Speech as material
 
