@@ -559,3 +559,12 @@ def test_35_project_refuses_a_missing_file_and_save_as_starts_one(tmp_path):
     assert refused.returncode != 0 and "No such file or directory" in refused.stderr and not p.exists()
     fc("--save-as", str(p), "import", str(tmp_path / "a.mp4"), cwd=tmp_path)
     assert [c["name"] for c in fc_json("inspect", "project", project=p, cwd=tmp_path)["root"]["children"]] == ["a.mp4"]
+
+
+def test_36_without_ids_a_clips_command_is_refused_and_an_optional_target_means_everything(proj):
+    """SKILL.md › How filmcraft-cli fails quietly: a call has no selection, so `clip.speedDuration` and `effects.apply` without `clips` are refused ("no clips selected", "select clips first"), while `timeline.razor` without `track` or `clip` cuts every track (V1 and A1 here)."""
+    d, p = proj
+    for line, message in (({"id": "clip.speedDuration", "params": {"speed": 200}}, "no clips selected"), ({"id": "effects.apply", "params": {"effect": "gaussian_blur"}}, "select clips first")):
+        [row] = fc_run([line], p, save=False, cwd=d, check=False)
+        assert row["ok"] is False and message in row["error"]
+    assert fc_json("exec", "timeline.razor", '{"seconds": 3.5}', project=p, cwd=d)["cuts"] == 2
