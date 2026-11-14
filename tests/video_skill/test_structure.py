@@ -16,13 +16,14 @@ PKG = "video"
 
 # The kind of every top-level name under video/. A name missing here fails, so a new unit is placed on purpose.
 KINDS = {
-    "transcribe": "feature", "captions": "feature", "timeline": "feature", "frames": "feature", "qc": "feature", "graphic": "feature", "waveform": "feature", "doctor": "feature",
-    "filmcraft": "system", "effectcraft": "system", "whisper": "system", "ffmpeg": "system", "mp4": "system", "chrome": "system", "subrip": "system", "openrouter": "system",
+    "transcribe": "feature", "captions": "feature", "timeline": "feature", "frames": "feature", "qc": "feature", "graphic": "feature", "waveform": "feature", "doctor": "feature", "imagegen": "feature",
+    "filmcraft": "system", "effectcraft": "system", "whisper": "system", "ffmpeg": "system", "mp4": "system", "chrome": "system", "subrip": "system", "openrouter": "system", "codex": "system",
+    "imageledger": "store",
     "timecode": "shared", "errors": "shared", "recognition": "shared", "__init__": "shared",
 }
 
-# What each kind may import besides its own unit: features rely on systems and shared helpers, systems on shared helpers only, so a feature can change or go without touching the rest.
-MAY_IMPORT = {"feature": {"system", "shared"}, "system": {"shared"}, "shared": {"shared"}}
+# What each kind may import besides its own unit: features rely on systems, stores and shared helpers, systems and stores on shared helpers only, so a feature can change or go without touching the rest.
+MAY_IMPORT = {"feature": {"system", "store", "shared"}, "system": {"shared"}, "store": {"shared"}, "shared": {"shared"}}
 
 # Imports between two features or two systems that are allowed on purpose. None so far.
 EXTRA_EDGES: set[tuple[str, str]] = set()
@@ -237,6 +238,8 @@ def test_clean_tree_passes(tmp_path):
     ({f"{PKG}/timecode.py": "import video.ffmpeg\n"}, "shared timecode imports system ffmpeg"),
     ({f"{PKG}/frames/__init__.py": "from video.qc import judge\n__all__ = []\n"}, "feature frames imports feature qc"),
     ({f"{PKG}/whisper/__init__.py": "from video import ffmpeg\n__all__ = []\n"}, "system whisper imports system ffmpeg"),
+    ({f"{PKG}/imageledger/__init__.py": "from video import ffmpeg\n__all__ = []\n"}, "store imageledger imports system ffmpeg"),
+    ({f"{PKG}/imageledger/__init__.py": "from video import qc\n__all__ = []\n"}, "store imageledger imports feature qc"),
     ({"cli.py": "from video.qc.judge import judge\n"}, "reaches past the interface"),
     ({"cli.py": "from video.qc import helper\n"}, "qc.helper is not in __all__"),
     ({"cli.py": "from video import qc\nqc.bands.x()\n", f"{PKG}/qc/bands.py": "def x(): pass\n"}, "reaches past the interface: qc.bands"),
