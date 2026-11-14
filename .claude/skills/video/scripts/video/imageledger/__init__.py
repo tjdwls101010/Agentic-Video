@@ -17,7 +17,7 @@ from video.errors import InputError
 from .schema import ATTEMPT_ID, SCHEMA, STATUSES, validate
 from .store import LEDGER, LOCK, check_folder, close_as_interrupted, edit, exists, now, read
 
-__all__ = ["LEDGER", "LOCK", "SCHEMA", "STATUSES", "check_name", "check_folder", "exists", "read", "validate", "open_request", "open_again", "finish", "interrupt", "judge", "find_attempt"]
+__all__ = ["LEDGER", "LOCK", "SCHEMA", "STATUSES", "check_name", "check_folder", "exists", "read", "validate", "open_request", "open_again", "finish", "interrupt", "judge", "find_attempt", "mark_opened"]
 
 _TRAILING_NUMBER = re.compile(r".*-\d+")
 
@@ -140,6 +140,11 @@ def judge(folder: Path, target: str, *, choose: bool | None, notes: list[str], c
         for text in notes:
             entry["notes"].append({"text": text, "at": now()})
         return [f"{target}: note added"] * len(notes)
+
+
+def mark_opened(folder: Path) -> None:
+    with edit(folder) as doc:
+        doc.setdefault("sheet_opened", now())
 
 
 def _is_attempt(doc: dict, target: str) -> bool:

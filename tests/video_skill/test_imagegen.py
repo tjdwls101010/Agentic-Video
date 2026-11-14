@@ -475,3 +475,133 @@ def test_logged_out_nothing_is_attempted_and_the_message_names_codex_login(env):
     code, out, raw, err = env.gen(FAKE_CODEX_SCENARIO="logged_out")
     assert code == 1 and "codex login" in out["error"] and "browser" in out["error"]
     assert env.starts() == [] and not env.dir.exists()
+
+
+# -- the ledger protects itself ---------------------------------------------------------------------------------------------
+
+def dead_pid() -> int:
+    p = subprocess.Popen(["true"])
+    p.wait()
+    return p.pid
+
+
+def add_running_row(env, attempt_id: str, pid: int):
+    doc = env.ledger()
+    doc["names"][0]["requests"][-1]["attempts"].append({"id": attempt_id, "status": "running", "started": "2026-01-01T00:00:00+09:00", "pid": pid})
+    (env.dir / "imagegen.json").write_text(json.dumps(doc, ensure_ascii=False))
+
+
+@pytest.mark.parametrize("damage", ["truncate", "unknown_key", "wrong_type"])
+def test_a_damaged_ledger_is_never_written_over(env, damage):
+    assert env.gen()[0] == 0
+    f = env.dir / "imagegen.json"
+    doc = env.ledger()
+    if damage == "truncate":
+        f.write_text(f.read_text()[:40])
+    else:
+        if damage == "unknown_key":
+            doc["names"][0]["requests"][0]["attempts"][0]["colour"] = "red"
+        else:
+            doc["names"][0]["requests"][0]["transparent"] = "no"
+        f.write_text(json.dumps(doc))
+    before = f.read_bytes()
+    code, out, raw, err = env.gen()
+    assert code == 2 and "nothing was written" in out["error"]
+    assert f.read_bytes() == before and len(env.starts()) == 1
+
+
+def test_a_try_whose_process_died_is_closed_as_interrupted_by_the_next_reader(env):
+    assert env.gen()[0] == 0
+    add_running_row(env, "mic-2", dead_pid())
+    assert env.gen()[0] == 0
+    rows = {a["id"]: a for a in env.attempts()}
+    assert rows["mic-2"]["status"] == "interrupted" and "file" not in rows["mic-2"] and "pid" not in rows["mic-2"]
+    assert rows["mic-3"]["status"] == "ok"
+
+
+def test_a_picture_placed_just_before_the_process_died_is_kept_on_the_interrupted_row(env):
+    assert env.gen()[0] == 0
+    add_running_row(env, "mic-2", dead_pid())
+    shutil.copyfile(env.dir / "mic-1.png", env.dir / "mic-2.png")
+    assert env.gen()[0] == 0
+    rows = {a["id"]: a for a in env.attempts()}
+    assert rows["mic-2"]["status"] == "interrupted" and rows["mic-2"]["file"] == "mic-2.png"
+    assert "mic-2.png" in (env.dir / "contact-sheet.html").read_text()
+
+
+def test_a_running_row_of_a_live_process_is_left_running(env):
+    assert env.gen()[0] == 0
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        add_running_row(env, "mic-2", sleeper.pid)
+        doc = env.ledger()
+        doc["names"][0]["requests"][-1]["attempts"][-1]["started"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        doc["names"][0]["requests"][-1]["attempts"][-1]["started"] = doc["names"][0]["requests"][-1]["attempts"][-1]["started"][:-2] + ":" + doc["names"][0]["requests"][-1]["attempts"][-1]["started"][-2:]
+        (env.dir / "imagegen.json").write_text(json.dumps(doc))
+        assert env.gen()[0] == 0
+        assert {a["id"]: a["status"] for a in env.attempts()}["mic-2"] == "running"
+    finally:
+        sleeper.kill()
+
+
+# -- the contact sheet --------------------------------------------------------------------------------------------------------
+
+def sheet_html(env) -> str:
+    return (env.dir / "contact-sheet.html").read_text()
+
+
+def stamp(env) -> str:
+    return re.search(r'"([0-9a-f]{12})"', (env.dir / ".sheet-stamp.js").read_text())[1]
+
+
+def test_the_sheet_shows_every_try_with_its_request_and_follows_the_ledger(env):
+    ref = make_ref(env.root / "참조 1.png")
+    assert env.gen("--ref", str(ref), "--label", "놋쇠 마이크, 청록 바탕", "--n", "2")[0] == 0
+    html = sheet_html(env)
+    first = stamp(env)
+    assert first in html
+    for word in ("mic", "놋쇠 마이크, 청록 바탕", "mic-1", "mic-2", "1672×941", f"프롬프트 ({len(PROMPT)}자)", "참조 1장", str(env.dir)):
+        assert word in html, word
+    for src in re.findall(r'<img src="([^"]+)"', html):
+        from urllib.parse import unquote
+        assert (env.dir / unquote(src)).resolve().is_file(), src
+    assert "%EC%B0%B8%EC%A1%B0%201.png" in html   # 참조 1.png, URL-encoded
+    assert env.gen(FAKE_CODEX_SCENARIO="refuse_input")[0] == 1
+    html = sheet_html(env)
+    assert stamp(env) != first and "실패 1건" in html and "refused" in html and "stage=input" in html
+
+
+def test_the_sheet_escapes_what_it_quotes(env):
+    code, out, raw, err = env.gen("--label", "<b>bold</b>", prompt=PROMPT + " <script>alert(1)</script>")
+    html = sheet_html(env)
+    assert "<script>alert(1)</script>" not in html and "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "<b>bold</b>" not in html
+
+
+def test_a_picture_that_cannot_be_chosen_is_still_shown_and_marked(env):
+    assert env.gen(FAKE_CODEX_SCENARIO="rewrite,rewrite")[0] == 1
+    html = sheet_html(env)
+    assert 'src="mic-1.png"' in html and "prompt_altered" in html and "고를 수 없음" in html
+
+
+def test_a_transparent_picture_shows_its_alpha_over_a_checkerboard(env):
+    assert env.gen("--transparent")[0] == 0
+    html = sheet_html(env)
+    assert "투명 75%" in html and "repeating-conic-gradient" in html
+
+
+def test_the_sheet_opens_once_and_only_when_asked(env):
+    assert env.gen("--no-open")[0] == 0
+    assert env.opened() == [] and "sheet_opened" not in env.ledger()
+    assert env.gen()[0] == 0
+    assert env.opened() == [str(env.dir / "contact-sheet.html")] and "sheet_opened" in env.ledger()
+    assert env.gen()[0] == 0
+    assert len(env.opened()) == 1
+
+
+def test_a_sheet_that_could_not_be_opened_is_tried_again_next_time(env):
+    code, out, raw, err = env.gen(FAKE_OPEN_EXIT="1")
+    assert code == 0 and len(env.opened()) == 1 and "sheet_opened" not in env.ledger()
+    assert "contact-sheet.html" in err
+    assert env.gen()[0] == 0
+    assert len(env.opened()) == 2 and "sheet_opened" in env.ledger()

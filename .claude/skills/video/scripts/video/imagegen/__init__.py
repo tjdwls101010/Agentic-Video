@@ -185,7 +185,16 @@ def _guarded(folder: Path, request: dict, row: dict, timeout: float, stop: threa
         message = f"{exc} already exists and is not in the ledger; it was left alone" if isinstance(exc, facts.Taken) else f"{type(exc).__name__}: {exc}"[:500]
         finished = imageledger.finish(folder, row["id"], {"status": "executor_error", "detail": {"message": message}})
     _say(_line(finished, timeout))
+    _redraw(folder)
     return finished
+
+
+def _redraw(folder: Path) -> Path:
+    try:
+        return sheet.publish(folder)
+    except Exception as exc:  # noqa: BLE001 -- the try is recorded; a sheet that will not draw must not lose it
+        _say(f"warning: the contact sheet could not be redrawn ({type(exc).__name__}: {exc})")
+        return folder / sheet.SHEET
 
 
 class _Stopped(Exception):
@@ -270,6 +279,10 @@ def _open(folder: Path, name: str, *, prompt: str | None, refs: list[Path], tran
 def generate(folder: Path, name: str, *, prompt: str | None, refs: list[Path], transparent: bool, label: str | None, again: str | None, n: int, timeout: float, open_sheet: bool) -> dict:
     name = imageledger.check_name(name)
     r, request, rows = _open(folder, name, prompt=prompt, refs=refs, transparent=transparent, label=label, again=again, n=n)
+    sheet_path = _redraw(folder)
+    if open_sheet:
+        sheet.open_once(folder, sheet_path)
+    _say(f"{name}: {len(rows)} tr{'y' if len(rows) == 1 else 'ies'} of request {r}, at most {CONCURRENCY} at once; contact sheet: {sheet_path}")
     stop = threading.Event()
     stopped_by = _run_queue(folder, request, rows, timeout, stop)
     finished = [imageledger.find_attempt(imageledger.read(folder), row["id"])[2] for row in rows]
@@ -278,7 +291,7 @@ def generate(folder: Path, name: str, *, prompt: str | None, refs: list[Path], t
     for x in results:
         counts[x["status"]] = counts.get(x["status"], 0) + 1
     summary = f"{len(results)} requested · " + " · ".join(f"{c} {s}" for s, c in sorted(counts.items(), key=lambda kv: (kv[0] != "ok", kv[0])))
-    out = {"summary": summary, "name": name, "request": r, "results": results, "sheet": str(sheet.publish(folder)), "ledger": str(folder / imageledger.LEDGER)}
+    out = {"summary": summary, "name": name, "request": r, "results": results, "sheet": str(_redraw(folder)), "ledger": str(folder / imageledger.LEDGER)}
     if stopped_by:
         out["error"] = f"stopped by {stopped_by}: its Codex calls were ended and the tries they had not finished are interrupted"
     elif not counts.get("ok"):
