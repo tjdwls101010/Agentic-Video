@@ -124,7 +124,7 @@ Exits: 0 written; 2 no window, more than {waveform.MAX_WINDOWS} windows, a windo
 
 
 IMAGEGEN_DESC = f"""\
-Make gpt-image pictures through the user's Codex CLI and its ChatGPT login: one `codex exec` per picture, asking Codex's built-in image_gen tool. The prompt and every --ref image go to OpenAI, and each picture draws on the same Codex usage limits as the user's other Codex work. Codex also keeps its own copy of every picture ($CODEX_HOME/generated_images) and a session record of every call, outside DIR; they are left there.
+Make gpt-image pictures through the user's Codex CLI and its ChatGPT login: one `codex exec` per try (and one more when Codex changed the prompt), asking Codex's built-in image_gen tool. The prompt and every --ref image go to OpenAI, and each picture draws on the same Codex usage limits as the user's other Codex work. Codex also keeps its own copy of every picture ($CODEX_HOME/generated_images) and a session record of every call, outside DIR; they are left there.
 
 The folder
 DIR holds the pictures, its ledger imagegen.json and its contact sheet contact-sheet.html (with .sheet-stamp.js and lock files beside them). A picture is DIR/NAME-k.png, where k counts every try under NAME in this folder, failed ones and other requests included, so no run overwrites or changes a picture already there. The ledger and the sheet are rewritten by every run. The sheet is where the user sees the candidates at full size, with what was said about each (imagenote): the folder's first run opens it in their browser (a session that cannot open it says where it is, and the next run tries again), and an open tab refreshes itself. A DIR whose imagegen.json is not this ledger, or that holds a contact-sheet.html without one, is refused before anything is written.
@@ -140,7 +140,7 @@ Time
 One picture usually takes 30 s to a minute (a refusal, seconds). At most {imagegen.CONCURRENCY} run at once within one command, so --n {imagegen.CONCURRENCY} takes about as long as one. --timeout bounds each try, its one retry included. Give the Bash call a timeout above --timeout, or run it in the background. Stopping the command (SIGTERM, SIGINT) ends its Codex calls and closes their tries as interrupted. A killed command (SIGKILL) cannot: its Codex calls run on to their end, using the allowance, and its tries are closed as interrupted by the next command that reads the ledger.
 
 How the model reads a prompt: tendencies observed on this path, not laws; when a result disagrees, trust the result.
-- Write the prompt as English prose. Codex passes it to image_gen word for word (see verbatim).
+- Write the prompt as English prose. Codex is told to pass it to image_gen word for word, and verbatim says whether it did.
 - State the aspect ratio in the first sentence ("Portrait 9:16 aspect ratio, taller than it is wide."); the shape is set only by the prompt, and left unsaid the model picks one.
 - Whatever is named first takes more of the frame and the first look, so name the subject first.
 - Listing several media keeps only some of them; to mix, name one medium and give it another's quality ("an oil painting with the flatness of a screenprint").
