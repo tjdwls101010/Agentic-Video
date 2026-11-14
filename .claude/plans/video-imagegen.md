@@ -362,7 +362,7 @@ imagenote TARGET --dir DIR [--choose | --unchoose] [--note TEXT]… [--critique 
 | 5 | `mic-2`를 페이지(`graphics/mic.html`)에 넣어 `graphic … --duration 3` → `fallback`·`blocked` 없음, 90프레임. `next` 그대로 가져와 놓고 `frames --overlay shorts`로 영상 위 확인 |
 | 6 | 겹쳐 실행으로 만든 세로 배경을 `clip.fillFrame`으로 전체 화면(C2), 장부에 네 이름의 행이 모두 있고 번호가 겹치지 않음 |
 | 7 | `claude` 읽기 전용 작업자(Sonnet, $0.18, 생성 없음)가 장부와 `--help`만으로 `--again mic-2` 명령(결과가 `mic-8`이 됨), 고른 이유(사용자 메모와 평가), `mic-7`의 만든 방법을 맞게 답했다 |
-| 8 | 아래 최종 실행에 적는다 |
+| 8 | 최종 리뷰 반영 뒤: `uv run --with pytest --with pillow --with playwright pytest -m "not slow"` 583 통과·3 건너뜀, 종료 코드 0. `FILMCRAFT_TEST_CODEX=1 … -k real_codex` 1 통과(37.5초). `claude plugin validate --strict .claude/skills` 종료 코드 0. `git archive HEAD`에 `.tmp`·`data/`·실행 로그 없음. 실제 Codex 생성 누계 26회 |
 
 ## Git
 
