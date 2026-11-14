@@ -42,7 +42,7 @@ def words_line(item, spec):
 # -- How filmcraft-cli fails quietly --------------------------------------------------------------------------------------
 
 def test_01_an_edit_without_save_is_gone_next_call(proj):
-    """SKILL.md › Headless or the running app: there is no autosave, so saving is yours; every call is a new session and without --save the edit disappears."""
+    """SKILL.md › Headless or the running app: headless has no autosave; every call is a new session and what a call did without --save is gone when it ends."""
     d, p = proj
     r = fc_json("exec", "markers.add", "name=lost", project=p, cwd=d)
     assert "marker" in r
@@ -190,7 +190,7 @@ def test_06_export_does_not_burn_captions_unless_asked(tmp_path):
 
 
 def test_07_export_defaults_to_the_in_out_range(proj):
-    """SKILL.md › Delivery: without a range, export renders In to Out when marks are set (Mark Out includes its frame), so say range entire."""
+    """SKILL.md › Delivery: with marks set, an export's default range is In to Out (Mark Out includes its frame); range entire takes everything."""
     d, p = proj
     fc_run([{"id": "markers.markIn", "params": {"seconds": 1}}, {"id": "markers.markOut", "params": {"seconds": 3}}], p, cwd=d)
     fc("export", str(d / "io.mp4"), project=p, cwd=d)
@@ -552,10 +552,10 @@ def test_34_a_filler_list_removes_every_match_whatever_follows(proj):
 
 
 def test_35_project_refuses_a_missing_file_and_save_as_starts_one(tmp_path):
-    """SKILL.md › Headless or the running app: `--project` opens a file that exists, and `--save-as P.fcproj import <media>` starts a project holding the media."""
+    """`filmcraft-cli --help` and its error (why SKILL.md no longer says it): `--project` opens a file that exists and refuses a missing one with "No such file or directory", and `--save-as P.fcproj import <media>` starts a project holding the media."""
     make_av(tmp_path / "a.mp4", 1, rate="30", size="320x180")
     p = tmp_path / "new.fcproj"
     refused = fc("inspect", "project", project=p, cwd=tmp_path, check=False)
-    assert refused.returncode != 0 and not p.exists()
+    assert refused.returncode != 0 and "No such file or directory" in refused.stderr and not p.exists()
     fc("--save-as", str(p), "import", str(tmp_path / "a.mp4"), cwd=tmp_path)
     assert [c["name"] for c in fc_json("inspect", "project", project=p, cwd=tmp_path)["root"]["children"]] == ["a.mp4"]
