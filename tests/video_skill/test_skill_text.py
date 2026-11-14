@@ -161,7 +161,7 @@ def test_every_help_a_fact_names_is_a_command():
 
 def test_the_skill_body_points_at_tools_rather_than_copying_their_values():
     """What a tool owns stays out: the provider's defaults and this skill's own numbers are in each --help."""
-    for copied in ("elevenlabs/scribe-v2", "nvidia/nemotron", "--max-shift", "OPENROUTER_API_KEY", "42 characters", "16 units"):
+    for copied in ("elevenlabs/scribe-v2", "nvidia/nemotron", "--max-shift", "OPENROUTER_API_KEY", "42 characters", "16 units", "megapixel", "1672", "gpt-image-2"):
         assert copied not in SKILL, copied
 
 
