@@ -146,7 +146,8 @@ def _observe(result: Run, started: float) -> None:
     missing = [g for g in gens if g.status == "completed"]
     pngs = sorted(folder.glob("*.png")) if folder.is_dir() else []
     if len(pngs) == 1:
-        result.image = pngs[0]
+        # No generation names this file, so nothing observed about another generation applies to it.
+        result.image, result.passed, result.observed, result.inputs = pngs[0], None, False, None
         result.note = "the rollout names a picture that does not exist; the one PNG in the thread's folder was taken unverified" if missing else "no generation in the rollout; the one PNG in the thread's folder was taken unverified"
     elif len(pngs) > 1:
         result.note = f"no generation in the rollout and {len(pngs)} PNGs in the thread's folder; none was taken because which one this run made cannot be told"
@@ -167,6 +168,9 @@ def run(prompt: str, *, refs: list[Path], transparent: bool, stronger: bool, tim
     if _stopping.is_set():
         result.interrupted = True
         return result
+    if timeout <= 0:
+        result.timed_out = True
+        return result
     work = Path(tempfile.mkdtemp(prefix="imagegen-"))
     try:
         schema_file, last_file = work / "schema.json", work / "last.json"
@@ -186,7 +190,7 @@ def run(prompt: str, *, refs: list[Path], transparent: bool, stronger: bool, tim
                     _signalled.add(proc.pid)
                 _stop(proc)
             try:
-                out, err = proc.communicate(input=text, timeout=max(0.1, timeout))
+                out, err = proc.communicate(input=text, timeout=timeout)
             except subprocess.TimeoutExpired:
                 result.timed_out = True
                 _stop(proc)
@@ -196,8 +200,8 @@ def run(prompt: str, *, refs: list[Path], transparent: bool, stronger: bool, tim
                 _live.pop(proc.pid, None)
         result.elapsed_s = round(time.time() - started, 1)
         result.returncode = proc.returncode
-        if proc.pid in _signalled and not result.timed_out:
-            result.interrupted = True
+        if proc.pid in _signalled and proc.returncode != 0 and not result.timed_out:
+            result.interrupted = True   # a call that had already exited cleanly when the stop came keeps its result
 
         messages = []
         for line in out.decode("utf-8", errors="replace").splitlines():

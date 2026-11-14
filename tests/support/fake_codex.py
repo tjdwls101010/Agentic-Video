@@ -20,11 +20,12 @@ FAKE_CODEX_SCENARIO is a comma-separated list read by call number (the last entr
   refuse_output      the same shape with moderation_stage output (shape not measured: never reproduced)
   refuse_unknown     moderation_blocked without moderation_details
   failed_no_reason   a failed generation item and no reason anywhere
+  failed_then_png    a failed generation item with no reason, and one PNG in the thread folder that no item names
   exit_nonzero       codex exits 1 after thread.started
   no_last            codex exits 0 without writing the last message
   hang / hang_stubborn   never answers; hang_stubborn's child ignores SIGTERM
   logged_out         `codex login status` fails
-FAKE_CODEX_SIZE (WxH, default 1672x941), FAKE_CODEX_DELAY (seconds before answering, default 0.2), FAKE_CODEX_NO_ALPHA (a transparent request gets an RGB image).
+FAKE_CODEX_SIZE (WxH, default 1672x941), FAKE_CODEX_DELAY (seconds before answering, default 0.2; a comma-separated list is read by call number like the scenario), FAKE_CODEX_NO_ALPHA (a transparent request gets an RGB image).
 """
 
 from __future__ import annotations
@@ -154,7 +155,8 @@ def main() -> int:
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
         time.sleep(600)
         return 0
-    time.sleep(float(os.environ.get("FAKE_CODEX_DELAY", "0.2")))
+    delays = [d.strip() for d in os.environ.get("FAKE_CODEX_DELAY", "0.2").split(",") if d.strip()] or ["0.2"]
+    time.sleep(float(delays[min(n, len(delays)) - 1]))
 
     rollout_dir = HOME / "sessions" / datetime.date.today().strftime("%Y/%m/%d")
     rollout_dir.mkdir(parents=True, exist_ok=True)
@@ -181,6 +183,9 @@ def main() -> int:
     elif sc == "failed_no_reason":
         lines.append(generation(tid, "failed", received, None, None, inputs))
         path_reported = ""
+    elif sc == "failed_then_png":
+        lines.append(generation(tid, "failed", received, None, None, inputs))
+        write_png(image, transparent)
     elif sc == "saved_missing":
         lines.append(generation(tid, "completed", received, transparent, image, inputs))
     elif sc in ("no_observation", "no_observation_mismatch", "no_rollout"):

@@ -100,14 +100,19 @@ def _one(folder: Path, request: dict, row: dict, timeout: float, stop: threading
     elapsed = res.elapsed_s
     verbatim = _verbatim(prompt, res)
     retried = None
+    late = None
     if verbatim == "mismatch" and not stop.is_set():
-        _say(f"{row['id']}  Codex changed the prompt; trying once more with a stronger instruction")
-        retried = {"verbatim": "mismatch", "elapsed_s": res.elapsed_s}
-        if res.thread_id:
-            retried["thread_id"] = res.thread_id
-        res = codex.run(prompt, refs=refs, transparent=request["transparent"], stronger=True, timeout=deadline - time.monotonic())
-        elapsed += res.elapsed_s
-        verbatim = _verbatim(prompt, res)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            late = f"Codex changed the prompt, and no time was left within --timeout {timeout:g}s for the retry"
+        else:
+            _say(f"{row['id']}  Codex changed the prompt; trying once more with a stronger instruction")
+            retried = {"verbatim": "mismatch", "elapsed_s": res.elapsed_s}
+            if res.thread_id:
+                retried["thread_id"] = res.thread_id
+            res = codex.run(prompt, refs=refs, transparent=request["transparent"], stronger=True, timeout=left)
+            elapsed += res.elapsed_s
+            verbatim = _verbatim(prompt, res)
 
     if res.interrupted:
         status = "interrupted"
@@ -139,8 +144,9 @@ def _one(folder: Path, request: dict, row: dict, timeout: float, stop: threading
         detail["returncode"] = res.returncode
     if res.generations > 1:
         detail["generations"] = res.generations
-    if res.note:
-        detail["note"] = res.note
+    notes = [x for x in (res.note, late) if x]
+    if notes:
+        detail["note"] = "; ".join(notes)
     if status != "ok":
         if res.log:
             detail["log"] = res.log
@@ -203,21 +209,18 @@ class _Stopped(Exception):
         self.name = name
 
 
-def _run_queue(folder: Path, request: dict, rows: list[dict], timeout: float, stop: threading.Event) -> str | None:
-    """Run the tries, at most CONCURRENCY at once. SIGTERM or SIGINT ends every Codex group and lets each try close as interrupted; the handler takes no file lock, since the main thread may hold one when it fires. Returns the signal's name when stopped."""
-    def handler(signum, frame):
-        if stop.is_set():
-            return
-        stop.set()
-        codex.terminate_all()
-        raise _Stopped(signal.Signals(signum).name)
+_SIGNALS = (signal.SIGTERM, signal.SIGINT)
 
-    stopped_by = None
-    previous = {s: signal.signal(s, handler) for s in (signal.SIGTERM, signal.SIGINT)}
+
+def _run_queue(folder: Path, request: dict, rows: list[dict], timeout: float, stop: threading.Event) -> str | None:
+    """Run the tries, at most CONCURRENCY at once. Returns the signal's name when a stop came while they ran; each try has then closed itself (a stopped Codex call, or a try that never started, ends as interrupted)."""
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENCY)
+    futures = []
+    stopped_by = None
     try:
-        futures = [pool.submit(_guarded, folder, request, row, timeout, stop) for row in rows]
         try:
+            for row in rows:
+                futures.append(pool.submit(_guarded, folder, request, row, timeout, stop))
             for f in futures:
                 f.result()
         except _Stopped as exc:
@@ -226,10 +229,6 @@ def _run_queue(folder: Path, request: dict, rows: list[dict], timeout: float, st
                 f.result()
     finally:
         pool.shutdown(wait=True)
-        for s, h in previous.items():
-            signal.signal(s, h)
-    if stopped_by:
-        imageledger.interrupt(folder, [row["id"] for row in rows])
     return stopped_by
 
 
@@ -278,13 +277,40 @@ def _open(folder: Path, name: str, *, prompt: str | None, refs: list[Path], tran
 
 def generate(folder: Path, name: str, *, prompt: str | None, refs: list[Path], transparent: bool, label: str | None, again: str | None, n: int, timeout: float, open_sheet: bool) -> dict:
     name = imageledger.check_name(name)
-    r, request, rows = _open(folder, name, prompt=prompt, refs=refs, transparent=transparent, label=label, again=again, n=n)
-    sheet_path = _redraw(folder)
-    if open_sheet:
-        sheet.open_once(folder, sheet_path)
-    _say(f"{name}: {len(rows)} tr{'y' if len(rows) == 1 else 'ies'} of request {r}, at most {CONCURRENCY} at once; contact sheet: {sheet_path}")
     stop = threading.Event()
-    stopped_by = _run_queue(folder, request, rows, timeout, stop)
+
+    def handler(signum, frame):
+        # Runs on the main thread, which may hold a file lock at that moment, so it takes none: it ends every Codex group and unwinds; the tries are closed after the locks are released.
+        if stop.is_set():
+            return
+        stop.set()
+        codex.terminate_all()
+        raise _Stopped(signal.Signals(signum).name)
+
+    previous = {s: signal.signal(s, handler) for s in _SIGNALS}
+    rows: list[dict] = []
+    stopped_by = None
+    try:
+        try:
+            signal.pthread_sigmask(signal.SIG_BLOCK, _SIGNALS)
+            try:
+                r, request, rows = _open(folder, name, prompt=prompt, refs=refs, transparent=transparent, label=label, again=again, n=n)
+            finally:
+                signal.pthread_sigmask(signal.SIG_UNBLOCK, _SIGNALS)   # a stop that came while the tries were being opened is taken here, once their ids are known
+            sheet_path = _redraw(folder)
+            if open_sheet:
+                sheet.open_once(folder, sheet_path)
+            _say(f"{name}: {len(rows)} tr{'y' if len(rows) == 1 else 'ies'} of request {r}, at most {CONCURRENCY} at once; contact sheet: {sheet_path}")
+            stopped_by = _run_queue(folder, request, rows, timeout, stop)
+        except _Stopped as exc:
+            stopped_by = exc.name
+        if stopped_by:
+            if not rows:
+                raise ToolError(f"stopped by {stopped_by} before any try was opened; nothing was generated")
+            imageledger.interrupt(folder, [row["id"] for row in rows])
+    finally:
+        for s, h in previous.items():
+            signal.signal(s, h)
     finished = [imageledger.find_attempt(imageledger.read(folder), row["id"])[2] for row in rows]
     results = [_result(folder, row) for row in finished]
     counts: dict[str, int] = {}

@@ -33,7 +33,7 @@ class Env:
         self.codex_home.mkdir()
         self.dir = root / "piece" / "graphics" / "imagegen"
         (self.bin / "codex").write_text(f'#!/bin/sh\nexec "{sys.executable}" "{FAKE}" "$@"\n')
-        (self.bin / "open").write_text(f'#!/bin/sh\necho "$@" >> "{root}/open-calls.txt"\nexit ${{FAKE_OPEN_EXIT:-0}}\n')
+        (self.bin / "open").write_text(f'#!/bin/sh\necho "$@" >> "{root}/open-calls.txt"\nsleep ${{FAKE_OPEN_DELAY:-0}}\nexit ${{FAKE_OPEN_EXIT:-0}}\n')
         for f in ("codex", "open"):
             (self.bin / f).chmod(0o755)
         self.vars = {"PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}", "CODEX_HOME": str(self.codex_home), "FAKE_CODEX_SCENARIO": "ok"}
@@ -297,12 +297,13 @@ def test_a_try_past_its_timeout_ends_codex_and_its_children(env):
     assert "timeout" in err
 
 
-def test_the_retry_shares_the_tries_timeout(env):
+def test_the_retry_gets_only_what_is_left_of_the_tries_timeout(env):
+    """The first call takes 2.5 s of a 4 s budget and the retry hangs: ended at about 4 s, not 4 s after the retry began."""
     t0 = time.monotonic()
-    code, out, raw, err = env.gen("--timeout", "3", FAKE_CODEX_SCENARIO="rewrite,hang")
+    code, out, raw, err = env.gen("--timeout", "4", FAKE_CODEX_SCENARIO="rewrite,hang", FAKE_CODEX_DELAY="2.5,0")
     took = time.monotonic() - t0
-    assert out["results"][0]["status"] == "timeout" and took < 3 + 10
-    assert len(env.starts()) == 2
+    assert out["results"][0]["status"] == "timeout" and len(env.starts()) == 2
+    assert took < 6.0, took
 
 
 def test_exit_zero_needs_only_one_ok_and_the_summary_counts_the_rest(env):
@@ -335,6 +336,12 @@ def test_the_verbatim_gate(env, scenario, status, verbatim, calls, retried):
     assert code == (0 if status == "ok" else 1)
     if retried:
         assert row["retried"]["verbatim"] == "mismatch" and "trying once more" in err
+
+
+def test_a_picture_no_generation_names_is_unverified_even_when_a_failed_generation_was_observed(env):
+    code, out, raw, err = env.gen(FAKE_CODEX_SCENARIO="failed_then_png")
+    [row] = env.attempts()
+    assert row["status"] == "ok" and row["verbatim"] == "unverified"
 
 
 def test_an_unverified_picture_says_why_there_was_no_observation(env):
@@ -385,6 +392,20 @@ def test_stopping_the_command_ends_every_codex_group_and_closes_the_tries_as_int
     assert [a["status"] for a in env.attempts()] == ["interrupted"] * 3 and not any("pid" in a for a in env.attempts())
     time.sleep(0.5)
     assert not [p for p in codex_pids(env) if alive(p)]
+
+
+def test_a_stop_after_the_tries_are_opened_and_before_codex_starts_still_closes_them(env):
+    """The sheet is opened (here a fake `open` that takes 5 s) after the tries are in the ledger and before any Codex call."""
+    proc = subprocess.Popen([sys.executable, str(CLI), "imagegen", "mic", "--dir", str(env.dir), "--n", "2"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            env={**os.environ, **env.env(FAKE_OPEN_DELAY="5")}, text=True)
+    proc.stdin.write(PROMPT)
+    proc.stdin.close()
+    proc.stdin = None
+    assert wait_for(lambda: env.opened())
+    proc.send_signal(signal.SIGTERM)
+    stdout, stderr = proc.communicate(timeout=30)
+    assert proc.returncode == 1, stderr
+    assert [a["status"] for a in env.attempts()] == ["interrupted", "interrupted"] and env.starts() == []
 
 
 def test_a_killed_command_leaves_running_tries_that_the_next_reader_closes(env):
@@ -508,6 +529,24 @@ def test_a_damaged_ledger_is_never_written_over(env, damage):
     code, out, raw, err = env.gen()
     assert code == 2 and "nothing was written" in out["error"]
     assert f.read_bytes() == before and len(env.starts()) == 1
+
+
+@pytest.mark.parametrize("damage", ["gap_in_numbers", "id_not_a_string", "file_not_a_string"])
+def test_a_ledger_damaged_in_its_numbering_or_types_is_refused_with_a_reason(env, damage):
+    assert env.gen("--n", "2")[0] == 0
+    doc = env.ledger()
+    attempts = doc["names"][0]["requests"][0]["attempts"]
+    if damage == "gap_in_numbers":
+        del attempts[0]
+    elif damage == "id_not_a_string":
+        attempts[0]["id"] = ["mic-1"]
+    else:
+        attempts[0]["file"] = ["mic-1.png"]
+    f = env.dir / "imagegen.json"
+    f.write_text(json.dumps(doc))
+    before = f.read_bytes()
+    code, out, raw, err = env.gen()
+    assert code == 2 and "nothing was written" in out["error"] and f.read_bytes() == before, raw + err
 
 
 def test_a_try_whose_process_died_is_closed_as_interrupted_by_the_next_reader(env):

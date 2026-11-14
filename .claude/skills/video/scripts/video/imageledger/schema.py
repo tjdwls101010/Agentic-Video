@@ -75,6 +75,7 @@ def validate(doc) -> list[str]:
             seen_names.add(name.casefold())
         _notes(where, entry.get("notes"), errors)
         numbers = []
+        order: list = []
         for request in entry.get("requests") if isinstance(entry.get("requests"), list) else []:
             rw = f"{where}.requests[r={request.get('r')}]" if isinstance(request, dict) else f"{where}.requests[]"
             if not _shape(rw, request, REQUEST, errors):
@@ -87,12 +88,14 @@ def validate(doc) -> list[str]:
                 if not _shape(aw, attempt, ATTEMPT, errors):
                     continue
                 aid = attempt.get("id")
+                order.append(aid)
                 m = ATTEMPT_ID.fullmatch(aid) if isinstance(aid, str) else None
                 if not m or m["name"] != name:
                     errors.append(f"{aw}: id must be {name}-<k>")
-                if aid in ids:
-                    errors.append(f"{aw}: duplicate attempt id")
-                ids.add(aid)
+                if isinstance(aid, str):
+                    if aid in ids:
+                        errors.append(f"{aw}: duplicate attempt id")
+                    ids.add(aid)
                 status = attempt.get("status")
                 if status not in STATUSES:
                     errors.append(f"{aw}: status must be one of {list(STATUSES)}, got {status!r}")
@@ -114,10 +117,13 @@ def validate(doc) -> list[str]:
                         errors.append(f"{aw}.detail: stage must be one of {list(STAGES)}")
                 _notes(aw, attempt.get("notes"), errors)
                 f = attempt.get("file")
-                if f is not None:
+                if isinstance(f, str):
                     if f in files:
                         errors.append(f"{aw}: file {f!r} already belongs to another attempt")
                     files.add(f)
         if numbers != list(range(1, len(numbers) + 1)):
             errors.append(f"{where}: requests must be numbered 1, 2, … in order, got {numbers}")
+        # Every try under a name takes the next number, failed ones included, so the ids in order are exactly name-1 … name-N; a gap would make the next try reuse a number.
+        if isinstance(name, str) and order != [f"{name}-{k}" for k in range(1, len(order) + 1)]:
+            errors.append(f"{where}: attempts must be numbered {name}-1, {name}-2, … in order across its requests")
     return errors
