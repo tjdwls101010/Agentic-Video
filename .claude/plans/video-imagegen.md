@@ -34,7 +34,7 @@
 - 판정 기록 명령의 이름은 `imagenote`(질문 미리보기에서는 `imagegen-note`라고 보여 드렸다. 기존 명령이 모두 한 단어라 맞췄다).
 - design에 있던 `--aspect`(비율 확인과 프롬프트 첫 문장 경고)는 가져오지 않는다. 명령이 나온 크기를 출력하므로 비율이 맞는지는 모델이 스스로 볼 수 있고, 그런 일은 skill-maker의 Model over machinery에서 `--help` 한 줄의 몫이다.
 - 명령 둘은 `cli.py`의 하위 명령이고 세 번째 단계는 두지 않는다. 프롬프트는 design처럼 stdin으로 받는다.
-- 시트는 design과 같이 그 폴더에서 처음으로 열기에 성공할 때 한 번 브라우저에 열린다(`--no-open`으로 끔).
+- 시트는 design과 같이 그 폴더에서 처음으로 열기에 성공할 때 한 번 브라우저에 열린다(`--no-open`으로 끔). (구현 뒤 바뀜: `--no-open`은 기준선 대조 판정으로 삭제했다 — "대조 원장")
 - 게이트 테스트는 이 레포의 기존 방식(`FILMCRAFT_TEST_OPENROUTER=1 … -k real_openrouter`)을 따라 `FILMCRAFT_TEST_CODEX=1 … -k real_codex`(질문 때 말한 `-m codex`가 아니라 레포 관례).
 - 생성할지 코드로 그릴지는 기존 결정(`video-effectcraft.md` "그래픽 경계": 기본값 없이 사실만, 선택은 그 자리에서 Claude가 이유와 함께 하고 사용자가 바꾼다)을 그대로 따른다.
 - 장부는 skill-maker 트리대로 store 유닛으로 둔다(아래 "유닛"). 구조 테스트에 kind `store`가 생긴다.
@@ -105,6 +105,8 @@ imagegen NAME --dir DIR [--ref IMG]… [--transparent] [--label TEXT] [--n K] [-
 imagegen NAME --dir DIR --again IMAGE [--n K] [--timeout S] [--no-open]
 ```
 
+> 구현 뒤 바뀜: `--no-open`은 기준선 대조 판정으로 삭제했다("대조 원장"). 폴더의 첫 실행이 늘 시트를 연다.
+
 - `NAME`: 그림이 무엇인지의 이름(`mic`, `sky`). 파일은 `DIR/NAME-k.png`이고 k는 그 이름의 모든 시도를 세므로(요청이 달라도, 실패해도) **어떤 실행도 생성 PNG의 이름을 다시 쓰거나 내용을 바꾸지 않는다.** NFC로 정규화한다. 거부(exit 2): 빈 이름, 제어 문자·경로 구분자, 맨 앞의 점, `-숫자`로 끝나는 이름(시도 id와 헷갈림), 장부에 이미 있는 이름과 대소문자만 다른 이름(macOS 파일 시스템에서 같은 파일이 됨).
 - `--dir DIR`: 그림 폴더. 없으면 만든다. 생성 PNG는 한 번 쓰이면 바뀌지 않는 파일이고, 장부 `imagegen.json`·시트 `contact-sheet.html`·`.sheet-stamp.js`·잠금 파일은 **도구가 갱신하는 관리 파일**이다. 처음 쓸 때 DIR에 이 스키마가 아닌 `imagegen.json`이 있거나, 장부 없이 `contact-sheet.html`이 있으면(남의 파일) 아무것도 쓰지 않고 exit 2.
 - 요청: stdin 프롬프트가 있는 호출 하나가 요청 하나다(프롬프트, 참조, 투명 여부, 라벨). 같은 이름 아래 요청이 쌓이고, 출력의 `request`는 그 이름 안에서의 요청 번호(1부터)다.
@@ -115,7 +117,7 @@ imagegen NAME --dir DIR --again IMAGE [--n K] [--timeout S] [--no-open]
 - `--n K`: 이 요청의 시도 수, 1~6(기본 1). 한 번의 명령 실행 안에서 최대 6개가 동시에 돈다(명령을 두 번 겹쳐 실행하면 각자 6개까지).
 - `--timeout S`: 시도 하나의 제한(기본값은 M6 측정 뒤 정한다. design은 호출당 300). 원문 불일치로 한 번 다시 부르는 것도 같은 제한 안에서 한다(design은 호출마다 따로라 시도 하나가 600초까지 갈 수 있고, 그것은 Bash 포그라운드 상한과 같다). 넘으면 codex의 프로세스 그룹 전체를 끝내고 `timeout`으로 기록.
 - 중단: codex는 자기 세션으로 뜨므로 `cli.py`가 죽어도 따라 죽지 않는다. `cli.py`는 SIGTERM·SIGINT를 받으면 살아 있는 codex 프로세스 그룹을 모두 끝내고, 끝나지 않은 시도를 `interrupted`로 닫고 나간다. SIGKILL은 막을 수 없으므로 그때 남은 codex는 제 호출을 마칠 때까지 돌고(한도를 씀), 장부의 시도는 다음 읽기 때 `interrupted`로 닫힌다.
-- `--no-open`: 시트를 브라우저에 열지 않는다. 주지 않으면, 장부에 `sheet_opened`가 없을 때 macOS `open`(이름으로 호출, `webbrowser` 모듈 아님)을 부르고 **성공했을 때만** `sheet_opened`를 적는다. 열지 못하면(샌드박스 세션 등) stderr에 시트 경로를 알리고 다음 실행 때 다시 시도한다.
+- `--no-open`: 시트를 브라우저에 열지 않는다. 주지 않으면, 장부에 `sheet_opened`가 없을 때 macOS `open`(이름으로 호출, `webbrowser` 모듈 아님)을 부르고 **성공했을 때만** `sheet_opened`를 적는다. 열지 못하면(샌드박스 세션 등) stderr에 시트 경로를 알리고 다음 실행 때 다시 시도한다. (구현 뒤 바뀜: `--no-open`은 기준선 대조 판정으로 삭제했다 — "대조 원장")
 - stdout(JSON 한 문서): `{"summary": "3 requested · 2 ok · 1 refused", "name", "request", "results": [{"image": "mic-3", "file": <절대 경로>?, "status", "w"?, "h"?, "alpha"?, "verbatim"?, "error"?}], "sheet": <절대 경로>, "ledger": <절대 경로>}`. stderr: 시도가 끝날 때마다 한 줄(상태, 크기, 걸린 시간, 실패면 사유와 다음에 할 일).
 - 종료 코드(이 스킬의 기존 규약): 0 한 장 이상 `ok`(일부가 실패해도 0이므로 `summary`와 각 `status`를 읽어야 한다); 1 codex가 없거나 로그인돼 있지 않음(아무것도 시도하지 않음. 메시지는 `codex login`이 사용자의 브라우저 로그인을 요구한다고 말함), 또는 `ok`가 하나도 없음(JSON에 `error`); 2 명령줄을 바꿔야 함.
 
@@ -180,7 +182,7 @@ imagenote TARGET --dir DIR [--choose | --unchoose] [--note TEXT]… [--critique 
   - 먼저 깨질 것: rollout 항목의 이름·필드, 세션 저장 설정, `generated_images` 경로. 그래서 2순위 경로가 있고, 게이트 테스트가 Codex 업데이트 뒤 이것을 한 번에 알려 준다.
 - **`imageledger`(스토어).** 위 "장부". 인터페이스는 읽기, 잠금 편집, 요청 열기, 시도 열기·닫기, 판정 쓰기. skill-maker 트리의 `<store>/`이고 구조 테스트에 kind `store`가 생긴다: 기능은 시스템·스토어·공용을, 스토어는 공용만 import한다.
 - **`imagegen`(기능).** `generate(...)`: 인자 검사 → 장부에 요청과 시도들을 열기 → `ThreadPoolExecutor(6)` → 시도마다 codex 실행, verbatim 판정(불일치면 더 강한 봉투로 남은 시간 안에서 한 번 재시도), 새 파일로 놓기, 크기·알파, 장부 닫기, 시트 다시 그리기, stderr 한 줄. 시도 하나가 예외로 죽어도 그 시도는 `executor_error`로 닫히고 시트는 다시 그려진다. `note(...)`: 판정을 장부에 쓰고 시트를 다시 그린다. 시트는 이 유닛의 내부 모듈이다(장부를 그리는 곳이 여기 하나).
-- **`doctor`.** 선택 항목 `codex` 추가: 값은 `installed, logged in` / `installed, not logged in` / `not installed`, `why`는 "Needed only by imagegen …". 필수가 아니므로 전체 판정을 바꾸지 않고 `next`에도 들어가지 않는다. M8에서 로그인 확인이 네트워크나 쓰기를 쓰면 값은 설치 여부뿐.
+- **`doctor`.** (구현 뒤 바뀜: M8 측정으로 값은 `installed` / `not installed`뿐 — "측정 원장") 선택 항목 `codex` 추가: 값은 `installed, logged in` / `installed, not logged in` / `not installed`, `why`는 "Needed only by imagegen …". 필수가 아니므로 전체 판정을 바꾸지 않고 `next`에도 들어가지 않는다. M8에서 로그인 확인이 네트워크나 쓰기를 쓰면 값은 설치 여부뿐.
 
 ### `--help` 구조 (이 텍스트가 인터페이스다)
 
@@ -272,7 +274,7 @@ imagenote TARGET --dir DIR [--choose | --unchoose] [--note TEXT]… [--critique 
 | 참조: 없는 파일 exit 2, 장부에 상대 경로와 sha256, 관측 해시가 다르면 `detail` | CLI, 장부 | hashlib으로 따로 계산 |
 | codex 없음 / 로그아웃: exit 1, 시도 없음, 메시지에 `codex login` | PATH 조작, 가짜 `logged_out` | — |
 | 시트: 장부가 바뀌면 내용과 스탬프가 바뀌고, 바뀌지 않으면 스탬프도 그대로. 이름·그림 링크(한글·공백 파일 이름이 URL 인코딩되고 링크 대상이 실제로 있음)·한국어 라벨·접힌 프롬프트·실패 목록. 프롬프트의 `<script>`가 이스케이프됨 | HTML 파일 | 장부에 넣은 값 |
-| 시트 열기: 처음 한 번만 `open` 호출, `--no-open`이면 안 부르고 다음 실행에서 부름, `open`이 실패하면 `sheet_opened`를 적지 않고 다음 실행에서 다시 부름 | 가짜 `open`의 호출 기록, 장부 | 호출 횟수 |
+| 시트 열기(구현 뒤 바뀜: `--no-open` 삭제로 "플래그가 없다"는 테스트로 대체): 처음 한 번만 `open` 호출, `--no-open`이면 안 부르고 다음 실행에서 부름, `open`이 실패하면 `sheet_opened`를 적지 않고 다음 실행에서 다시 부름 | 가짜 `open`의 호출 기록, 장부 | 호출 횟수 |
 | `imagenote`: 선택·해제(같은 상태면 성공)·메모(덧붙음)·평가(대체)가 장부와 시트에, 잘못된 대상·`ok` 아닌 그림 선택은 exit 2 | CLI, 장부, HTML | 넣은 문자열 |
 | 장부 보호: 손상된 JSON·모르는 키면 쓰지 않고 실패(파일 바이트 불변), 죽은 프로세스의 `running`은 `interrupted`로, 그때 파일이 있으면 `file`이 채워짐 | 장부 파일을 손으로 고쳐 놓고 CLI | — |
 | doctor: codex 항목의 세 값, 전체 판정에 영향 없음, 네트워크·쓰기 없음 | 기존 `judge(Facts)` 이음매와 실제 진입점 | — |
@@ -542,7 +544,7 @@ imagenote TARGET --dir DIR [--choose | --unchoose] [--note TEXT]… [--critique 
 | 5 | doctor 무쓰기 테스트는 codex가 쓰기 실패를 무시하면 못 잡음 | 채택. 가짜 codex로 doctor가 codex를 실행하지 않음을 직접 지키는 `test_doctor_never_runs_codex` |
 | — | PNG 보호, 동시 번호, 관측 규칙, 구조 테스트, `--no-open` 삭제, 알파 보고 | 지적 없음 |
 
-수정이 장부 스키마(공유 불변식)를 건드려 같은 스레드에 수정만 좁게 다시 보였다(run `20261114-224512-imagegen-final-code-6a6a`): (a) 번호 검사는 코드가 쓰는 모든 장부를 받고 빈 번호·중복을 거부 — 지적 없음. (b) 장부의 이름 자체를 검사하지 않아 이름·id·file을 함께 `../other`로 바꾼 손상을 받아들임 — 채택: 이름 규칙을 `schema.name_problem`으로 옮겨 `check_name`과 스키마가 같은 검사를 쓴다, 재현 사례 `name_with_a_path`. (c) 새 테스트는 수정을 되돌리면 실패 — 지적 없음.
+리뷰는 여기서 멈춘다: 마지막 수정은 `check_name`과 스키마가 같은 `name_problem`을 부르게 해, 코드가 스키마가 거부하는 이름을 쓸 수 없도록 구조로 닫았다. 수정이 장부 스키마(공유 불변식)를 건드려 같은 스레드에 수정만 좁게 다시 보였다(run `20261114-224512-imagegen-final-code-6a6a`): (a) 번호 검사는 코드가 쓰는 모든 장부를 받고 빈 번호·중복을 거부 — 지적 없음. (b) 장부의 이름 자체를 검사하지 않아 이름·id·file을 함께 `../other`로 바꾼 손상을 받아들임 — 채택: 이름 규칙을 `schema.name_problem`으로 옮겨 `check_name`과 스키마가 같은 검사를 쓴다, 재현 사례 `name_with_a_path`. (c) 새 테스트는 수정을 되돌리면 실패 — 지적 없음.
 
 ## 부록: 근거 원장
 

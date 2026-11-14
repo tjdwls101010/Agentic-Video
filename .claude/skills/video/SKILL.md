@@ -91,7 +91,7 @@ Where it is made changes what is left for the user to change, what can see the f
 
 When: running `imagegen`, or placing, fixing or matching what it made.
 
-- `imagegen` asks gpt-image for a picture through the user's Codex login: the prompt and every `imagegen --ref` image leave this machine for OpenAI, a frame of the footage or someone's photo included. Codex keeps its own copy of each picture and a session for each call in the user's Codex folder, outside the piece. How the model reads a prompt is in `imagegen --help`.
+- `imagegen` asks gpt-image for a picture through the user's Codex login: the prompt and every `imagegen --ref` image leave this machine for OpenAI, a frame of the footage or someone's photo included. Codex keeps its own copy of each picture and a session for each call in the user's Codex folder, outside the piece. How gpt-image reads a prompt is in `imagegen --help`.
 - Every try, with its prompt and references, is in the folder's `imagegen.json`, and its `contact-sheet.html` is where the user sees the candidates at full size; `imagenote` adds which picture they chose, what they said about it in their words, and your assessment, which is where a later session reads how a picture was made and why it was picked.
 
 ## How effectcraft-cli fails quietly
