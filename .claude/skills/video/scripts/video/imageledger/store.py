@@ -62,6 +62,7 @@ def _write(folder: Path, doc: dict) -> None:
 
 def _alive(pid: int, started: str) -> bool:
     """Whether the process that opened an attempt still runs. A live pid that started after the attempt is a reused pid, not the writer."""
+    # 성진: a pid reused by a process started within 5 s of the attempt counts as the writer, so that row stays running until that process ends; tighten the 5 s (which absorbs ps's whole-second elapsed time) if such rows are seen.
     try:
         attempt_start = datetime.datetime.fromisoformat(started).timestamp()
     except ValueError:

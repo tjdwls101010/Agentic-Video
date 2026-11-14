@@ -6,6 +6,7 @@ Unknown keys are errors: the ledger grows by decision, not by a typo that silent
 from __future__ import annotations
 
 import re
+import unicodedata
 
 SCHEMA = 1
 
@@ -28,6 +29,24 @@ DETAIL = {"stage": (str, False), "code": (str, False), "message": (str, False), 
           "agent_message": (str, False), "log": (str, False), "observed": (bool, False), "refs_sent": (list, False), "note": (str, False)}
 
 ATTEMPT_ID = re.compile(r"(?P<name>.+)-(?P<k>[1-9]\d*)")
+_TRAILING_NUMBER = re.compile(r".*-\d+")
+
+
+def name_problem(name: str) -> str | None:
+    """Why `name` cannot be a picture's name, or None. A name becomes the file name `<name>-<k>.png` in the folder, so it may not be empty, hold a path separator or a control character, start with a dot, or end in -<digits> (which reads as an attempt id)."""
+    if not name.strip():
+        return "is empty"
+    if name != name.strip():
+        return "starts or ends with a space"
+    if "/" in name or "\\" in name or ":" in name or any(unicodedata.category(c).startswith("C") for c in name):
+        return "holds a path separator or a control character; it becomes part of a file name"
+    if name.startswith("."):
+        return "starts with a dot, which hides the file"
+    if _TRAILING_NUMBER.fullmatch(name):
+        return "ends in -<number>, which reads as a picture id such as mic-2"
+    if unicodedata.normalize("NFC", name) != name:
+        return "is not in NFC form"
+    return None
 
 
 def _shape(where: str, obj, spec: dict, errors: list) -> bool:
@@ -69,6 +88,8 @@ def validate(doc) -> list[str]:
         if not _shape(where, entry, NAME, errors):
             continue
         name = entry.get("name")
+        if isinstance(name, str) and name_problem(name):
+            errors.append(f"{where}: the name {name_problem(name)}")
         if isinstance(name, str):
             if name.casefold() in seen_names:
                 errors.append(f"{where}: another name differs from it only in case")
@@ -117,13 +138,15 @@ def validate(doc) -> list[str]:
                         errors.append(f"{aw}.detail: stage must be one of {list(STAGES)}")
                 _notes(aw, attempt.get("notes"), errors)
                 f = attempt.get("file")
+                if f is not None and isinstance(aid, str) and f != f"{aid}.png":
+                    errors.append(f"{aw}: file must be {aid}.png, the try's own picture in this folder")
                 if isinstance(f, str):
                     if f in files:
                         errors.append(f"{aw}: file {f!r} already belongs to another attempt")
                     files.add(f)
         if numbers != list(range(1, len(numbers) + 1)):
             errors.append(f"{where}: requests must be numbered 1, 2, … in order, got {numbers}")
-        # Every try under a name takes the next number, failed ones included, so the ids in order are exactly name-1 … name-N; a gap would make the next try reuse a number.
-        if isinstance(name, str) and order != [f"{name}-{k}" for k in range(1, len(order) + 1)]:
-            errors.append(f"{where}: attempts must be numbered {name}-1, {name}-2, … in order across its requests")
+        # Every try under a name takes the next number, failed ones included, so its ids are exactly name-1 … name-N. They need not be in array order: --again adds a later number to an earlier request. A gap would make the next try reuse a number.
+        if isinstance(name, str) and sorted(map(str, order)) != sorted(f"{name}-{k}" for k in range(1, len(order) + 1)):
+            errors.append(f"{where}: its attempts must be numbered {name}-1 … {name}-{len(order)} with none missing")
     return errors

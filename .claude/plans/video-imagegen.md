@@ -349,6 +349,19 @@ imagenote TARGET --dir DIR [--choose | --unchoose] [--note TEXT]… [--critique 
 7. 장부만으로 이어 갈 수 있는가: `claude` 스킬의 읽기 전용 작업자에게 `imagegen.json`과 `imagegen --help`만 주고 "mic-2와 같은 그림을 하나 더 만들려면 어떤 명령을 치겠는가, 사용자는 왜 mic-2를 골랐는가"를 묻는다(구현 세션은 답을 이미 알므로 스스로는 확인할 수 없다). 작업자 실행 한 번, 생성 호출 없음.
 8. 전체 스위트와 게이트 테스트, `claude plugin validate --strict`.
 
+### 검증 결과 (2026-11-14, 11단계)
+
+| # | 결과 |
+|---|---|
+| 1 | `doctor`: `codex: installed`, 전체 ok. 값이 계획의 `installed, logged in`이 아닌 것은 M8 결정(codex 실행이 Codex 폴더에 쓴다) |
+| 2 | M9 실행이 이것이다: 6장, 요청 1·시도 6, 시트가 브라우저에 열림. heredoc 프롬프트 호출의 권한 프롬프트 여부는 **확인 못 함**: 이 세션은 권한 우회 모드라 프롬프트가 뜨지 않는다 |
+| 3 | Playwright로 연 Chrome 탭에서 `imagenote mic-2 --choose --note … --critique …` 뒤 3.5초 안에 선택 표시·메모·평가가 새로 고침 없이 나타남(그림 메모의 시각이 글자에 붙는 스타일을 이때 찾아 고침) |
+| 4 | `imagegen mic --ref graphics/imagegen/mic-2.png --label "받침만 무광 검정으로"` → `mic-7`, 요청 2, 기존 6장 해시 불변, 장부에 참조 `mic-2.png`와 sha256. 받침만 바뀌고 나머지는 그대로였다. `--transparent` 없이도 RGBA로 나와 알파 보고를 고쳤다(`7e72a3d` 뒤 커밋) |
+| 5 | `mic-2`를 페이지(`graphics/mic.html`)에 넣어 `graphic … --duration 3` → `fallback`·`blocked` 없음, 90프레임. `next` 그대로 가져와 놓고 `frames --overlay shorts`로 영상 위 확인 |
+| 6 | 겹쳐 실행으로 만든 세로 배경을 `clip.fillFrame`으로 전체 화면(C2), 장부에 네 이름의 행이 모두 있고 번호가 겹치지 않음 |
+| 7 | `claude` 읽기 전용 작업자(Sonnet, $0.18, 생성 없음)가 장부와 `--help`만으로 `--again mic-2` 명령(결과가 `mic-8`이 됨), 고른 이유(사용자 메모와 평가), `mic-7`의 만든 방법을 맞게 답했다 |
+| 8 | 아래 최종 실행에 적는다 |
+
 ## Git
 
 - PR 하나, 이유 하나: "영상에 필요한 그림을 생성해 쓰고 그 이력과 판정을 남긴다". 제목 `feat: video 스킬에 imagegen 이미지 생성과 컨택트 시트 추가`. 이 계획 파일(이름 바꿈 포함)과 README, SKILL.md가 같은 PR에 들어간다.
@@ -506,6 +519,30 @@ imagenote TARGET --dir DIR [--choose | --unchoose] [--note TEXT]… [--critique 
 | 4 | 실패한 생성의 관측 프롬프트가 폴백 PNG의 verbatim에 쓰임 | 채택. 폴백 그림에는 관측을 붙이지 않는다(unverified). 재현 테스트 `failed_then_png` |
 | 5 | 남은 시간이 0 이하여도 재시도가 최소 0.1초로 시작됨 | 채택. 남은 시간이 없으면 재시도하지 않고 `detail.note`에 적는다(그림이 있으면 prompt_altered). `codex.run`은 0 이하 제한이면 시작하지 않는다. 첫 호출이 예산을 거의 정확히 다 쓰는 순간은 결정적으로 만들 수 없어 테스트 없음 |
 | 6 | 재시도 예산 테스트가 버그를 못 잡음 | 채택. 첫 호출 2.5초·예산 4초·재시도 hang으로 바꿔, 재시도가 전체 예산을 받으면 6.5초를 넘어 실패하게 했다 |
+
+### codex 최종 리뷰 (12단계, read-only, 2026-11-14)
+
+본문·`--help`를 skill-maker 여섯 성질에 비춰(run `20261114-224003-imagegen-final-text-e851`, 대조 원장을 함께 줌):
+
+| # | 지적 | 처분 |
+|---|---|---|
+| 1 | `--help`의 "Codex passes it to image_gen word for word"는 보장이 아니고, "picture당 exec 하나"는 재시도 때 틀림 | 채택. "Codex is told to pass it … verbatim says whether it did", "one `codex exec` per try (and one more when Codex changed the prompt)" |
+| 2 | "모든 시도가 장부와 시트에"는 시트의 실제 범위(실패는 접힌 목록, 프롬프트는 요청 단위)보다 넓음 | 채택. 장부(모든 시도)와 시트(사용자가 후보를 보는 곳)로 나눔 |
+| 3 | 공유 한도가 2절과 새 절에 겹침(Dense) | 채택. 호출 전에 계획을 바꾸는 2절 쪽을 남기고 새 절 쪽을 지움 |
+| — | Principle over rail, Model over machinery, For the model, Colleague over autopilot | 지적 없음 |
+
+코드·테스트를 계약에 비춰(run `20261114-224004-imagegen-final-code-a383`):
+
+| # | 지적 | 처분 |
+|---|---|---|
+| 1 | 다른 요청 뒤에 앞 요청을 `--again`하면 시도 id가 배열 순서로 `mic-1, mic-3, mic-2`가 되어, 중간 리뷰 뒤 넣은 연속성 검사가 쓰기에서 RuntimeError | 채택(중대). 번호 집합이 1…N인지만 본다. 재현 테스트 `test_again_on_an_earlier_request_after_a_later_one`. 중간 리뷰의 수정이 새 회귀를 만든 사례 |
+| 2 | `file`이 그 시도의 `NAME-k.png`인지 검사하지 않아 `../other.png` 같은 손상을 받아들임 | 채택. 재현 테스트 두 사례 |
+| 3 | 장부가 있는 폴더의 바뀐 `contact-sheet.html`을 덮어씀 | 기각. 장부가 있는 폴더의 시트는 `--help`가 "매 실행 다시 쓴다"고 밝힌 관리 파일이다. 남의 시트를 보호하는 경우는 장부가 없을 때뿐이라는 계약 그대로 |
+| 4 | SIGKILL 직후 5초 안에 같은 PID가 재사용되면 행이 `running`으로 남음 | 한계로 기록(`store._alive`에 `성진:` 주석). design에서 가져온 의도된 절충(ps의 초 단위 경과 시간을 흡수) |
+| 5 | doctor 무쓰기 테스트는 codex가 쓰기 실패를 무시하면 못 잡음 | 채택. 가짜 codex로 doctor가 codex를 실행하지 않음을 직접 지키는 `test_doctor_never_runs_codex` |
+| — | PNG 보호, 동시 번호, 관측 규칙, 구조 테스트, `--no-open` 삭제, 알파 보고 | 지적 없음 |
+
+수정이 장부 스키마(공유 불변식)를 건드려 같은 스레드에 수정만 좁게 다시 보였다(run `20261114-224512-imagegen-final-code-6a6a`): (a) 번호 검사는 코드가 쓰는 모든 장부를 받고 빈 번호·중복을 거부 — 지적 없음. (b) 장부의 이름 자체를 검사하지 않아 이름·id·file을 함께 `../other`로 바꾼 손상을 받아들임 — 채택: 이름 규칙을 `schema.name_problem`으로 옮겨 `check_name`과 스키마가 같은 검사를 쓴다, 재현 사례 `name_with_a_path`. (c) 새 테스트는 수정을 되돌리면 실패 — 지적 없음.
 
 ## 부록: 근거 원장
 

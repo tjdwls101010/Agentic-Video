@@ -211,6 +211,17 @@ def test_again_adds_tries_to_the_same_request_with_the_recorded_prompt_and_reads
     assert [(c["prompt"], c["refs"], c["transparent"]) for c in env.starts()] == [(PROMPT, [str(ref)], True)] * 3
 
 
+def test_again_on_an_earlier_request_after_a_later_one(env):
+    assert env.gen()[0] == 0
+    assert env.gen(prompt="Square 1:1 aspect ratio. Another microphone.")[0] == 0
+    code, out, raw, err = env.gen("--again", "mic-1")
+    assert code == 0, raw + err
+    assert out["request"] == 1 and out["results"][0]["image"] == "mic-3"
+    requests = env.ledger()["names"][0]["requests"]
+    assert [[a["id"] for a in r["attempts"]] for r in requests] == [["mic-1", "mic-3"], ["mic-2"]]
+    assert env.gen("--again", "mic-2")[0] == 0 and env.note("mic-3", "--choose")[0] == 0
+
+
 @pytest.mark.parametrize("extra", [["--ref", "x.png"], ["--transparent"], ["--label", "x"]])
 def test_again_refuses_request_flags(env, extra):
     assert env.gen()[0] == 0
@@ -537,7 +548,7 @@ def test_a_damaged_ledger_is_never_written_over(env, damage):
     assert f.read_bytes() == before and len(env.starts()) == 1
 
 
-@pytest.mark.parametrize("damage", ["gap_in_numbers", "id_not_a_string", "file_not_a_string"])
+@pytest.mark.parametrize("damage", ["gap_in_numbers", "id_not_a_string", "file_not_a_string", "file_elsewhere", "file_of_another_try", "name_with_a_path"])
 def test_a_ledger_damaged_in_its_numbering_or_types_is_refused_with_a_reason(env, damage):
     assert env.gen("--n", "2")[0] == 0
     doc = env.ledger()
@@ -546,8 +557,16 @@ def test_a_ledger_damaged_in_its_numbering_or_types_is_refused_with_a_reason(env
         del attempts[0]
     elif damage == "id_not_a_string":
         attempts[0]["id"] = ["mic-1"]
-    else:
+    elif damage == "file_not_a_string":
         attempts[0]["file"] = ["mic-1.png"]
+    elif damage == "name_with_a_path":
+        doc["names"][0]["name"] = "../other"
+        for k, a in enumerate(attempts, 1):
+            a["id"], a["file"] = f"../other-{k}", f"../other-{k}.png"
+    elif damage == "file_elsewhere":
+        attempts[0]["file"] = "../other.png"
+    else:
+        attempts[0]["file"], attempts[1]["file"] = "mic-2.png", "mic-1.png"
     f = env.dir / "imagegen.json"
     f.write_text(json.dumps(doc))
     before = f.read_bytes()

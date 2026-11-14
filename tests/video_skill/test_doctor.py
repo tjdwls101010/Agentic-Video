@@ -268,6 +268,17 @@ def test_a_mismatched_cli_exits_one_through_the_entry_point(tmp_path, monkeypatc
     assert code == 1 and res["ok"] is False and "0.0.1" in check(res, "filmcraft_cli")["value"] and res["next"]
 
 
+def test_doctor_never_runs_codex(tmp_path, monkeypatch):
+    """Running any codex command writes into the user's Codex folder (measured: --version creates a directory under ~/.codex/tmp), so doctor only looks for it on PATH. The sandbox test below cannot see this: codex answers the same when its write is denied."""
+    ran = tmp_path / "ran"
+    fake = tmp_path / "codex"
+    fake.write_text(f"#!/bin/sh\necho \"$@\" >> '{ran}'\necho 'codex-cli 0.0.0'\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    code, res, raw, err = skill("doctor")
+    assert check(res, "codex")["value"] == "installed" and not ran.exists()
+
+
 def test_doctor_takes_no_arguments():
     code, res, raw, err = skill("doctor", "--fix")
     assert code == 2

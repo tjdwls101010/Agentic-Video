@@ -8,33 +8,22 @@ A name (`mic`) holds requests in order; a request is one prompt with its referen
 from __future__ import annotations
 
 import os
-import re
 import unicodedata
 from pathlib import Path
 
 from video.errors import InputError
 
-from .schema import ATTEMPT_ID, SCHEMA, STATUSES, validate
+from .schema import ATTEMPT_ID, SCHEMA, STATUSES, name_problem, validate
 from .store import LEDGER, LOCK, check_folder, close_as_interrupted, edit, exists, now, read
 
 __all__ = ["LEDGER", "LOCK", "SCHEMA", "STATUSES", "check_name", "check_folder", "exists", "read", "validate", "open_request", "open_again", "finish", "interrupt", "judge", "find_attempt", "mark_opened"]
 
-_TRAILING_NUMBER = re.compile(r".*-\d+")
-
-
 def check_name(raw: str) -> str:
-    """The NFC form of a picture's name, or InputError. A name becomes the file name `<name>-<k>.png`, so it may not be empty, hold a path separator or a control character, start with a dot, or end in -<digits> (which reads as an attempt id)."""
+    """The NFC form of a picture's name, or InputError when it cannot be one (schema.name_problem says why)."""
     name = unicodedata.normalize("NFC", raw)
-    if not name.strip():
-        raise InputError("NAME is empty")
-    if name != name.strip():
-        raise InputError(f"NAME {raw!r} starts or ends with a space")
-    if "/" in name or "\\" in name or ":" in name or any(unicodedata.category(c).startswith("C") for c in name):
-        raise InputError(f"NAME {raw!r} holds a path separator or a control character; it becomes part of a file name")
-    if name.startswith("."):
-        raise InputError(f"NAME {raw!r} starts with a dot, which hides the file")
-    if _TRAILING_NUMBER.fullmatch(name):
-        raise InputError(f"NAME {raw!r} ends in -<number>, which reads as a picture id such as mic-2; choose another name")
+    problem = name_problem(name)
+    if problem:
+        raise InputError(f"NAME {raw!r} {problem}" + ("; choose another name" if "picture id" in problem else ""))
     return name
 
 
