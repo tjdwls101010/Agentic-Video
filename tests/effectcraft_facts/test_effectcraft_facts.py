@@ -181,7 +181,7 @@ def test_06_a_missing_font_falls_back_to_inter_and_only_a_layer_font_is_reported
 
 
 def test_07_emoji_never_draw_in_colour(tmp_path):
-    """SKILL.md › How effectcraft-cli fails quietly: emoji never draw in colour, without an error: 😀 and ✅ draw as empty space, in the default font and in Apple Color Emoji alike, while ❤️ and a flag draw as plain stand-ins; a monochrome symbol (★) draws as itself. Expected from white fill on black: no pixel with colour."""
+    """SKILL.md › How effectcraft-cli fails quietly: no emoji tried draws in colour, and none raises an error: 😀 and ✅ draw as empty space, in the default font and in Apple Color Emoji alike, while ❤️ and a flag draw as plain stand-ins; a monochrome symbol (★) draws as itself. Expected from white fill on black: no pixel with colour."""
     comp = {"width": 260, "height": 200, "duration": 0.5, "background": "#000000"}
     cases = {"grin": ("😀", None), "grin_font": ("😀", "Apple Color Emoji"), "check": ("✅", None), "flag": ("🇰🇷", None), "heart": ("❤️", None), "star": ("★", None)}
     steps = []
