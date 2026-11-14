@@ -19,7 +19,7 @@ FAKE_KEY = "sk-test-doctor-0123456789-SECRET"
 
 
 def facts(**over):
-    base = dict(cli_version="0.14.0", app_version="0.14.0", ffmpeg=True, ffprobe=True, uvx=True, whisper_cached=True, key_source="file", chrome=True, ec_cli_version="0.24.1", ec_app_version="0.24.1")
+    base = dict(cli_version="0.14.0", app_version="0.14.0", ffmpeg=True, ffprobe=True, uvx=True, whisper_cached=True, key_source="file", chrome=True, ec_cli_version="0.24.1", ec_app_version="0.24.1", codex=True)
     return doctor.Facts(**{**base, **over})
 
 
@@ -30,8 +30,8 @@ def check(result, name):
 def test_everything_present_is_ok_with_nothing_to_do():
     r = doctor.judge(facts())
     assert r["ok"] is True and r["next"] == []
-    assert [c["name"] for c in r["checks"]] == ["filmcraft_cli", "ffmpeg", "ffprobe", "uvx", "whisper_model", "openrouter_key", "chrome", "effectcraft_cli"]
-    assert {c["name"]: c["required"] for c in r["checks"]} == {"filmcraft_cli": True, "ffmpeg": True, "ffprobe": True, "uvx": True, "whisper_model": False, "openrouter_key": False, "chrome": False, "effectcraft_cli": False}
+    assert [c["name"] for c in r["checks"]] == ["filmcraft_cli", "ffmpeg", "ffprobe", "uvx", "whisper_model", "openrouter_key", "chrome", "codex", "effectcraft_cli"]
+    assert {c["name"]: c["required"] for c in r["checks"]} == {"filmcraft_cli": True, "ffmpeg": True, "ffprobe": True, "uvx": True, "whisper_model": False, "openrouter_key": False, "chrome": False, "codex": False, "effectcraft_cli": False}
 
 
 def test_a_cli_behind_the_app_fails_and_next_installs_the_apps_version():
@@ -84,7 +84,7 @@ def test_one_tool_missing_and_one_broken_gets_both_commands():
     assert r["next"] == ["brew install ffmpeg", "brew reinstall ffmpeg"]
 
 
-@pytest.mark.parametrize("over", [{"whisper_cached": False}, {"key_source": "none"}, {"chrome": False}])
+@pytest.mark.parametrize("over", [{"whisper_cached": False}, {"key_source": "none"}, {"chrome": False}, {"codex": False}])
 def test_a_missing_optional_item_does_not_fail(over):
     r = doctor.judge(facts(**over))
     assert r["ok"] is True and r["next"] == []
@@ -95,6 +95,13 @@ def test_a_missing_optional_item_does_not_fail(over):
 def test_the_key_check_says_what_goes_without_a_key():
     why = check(doctor.judge(facts(key_source="none")), "openrouter_key")["why"]
     assert "--engine local" in why and "default" in why
+
+
+@pytest.mark.parametrize("installed, value", [(True, "installed"), (False, "not installed")])
+def test_the_codex_check_says_only_whether_it_is_installed_and_what_needs_it(installed, value):
+    c = check(doctor.judge(facts(codex=installed)), "codex")
+    assert c["value"] == value and c["ok"] is installed and c["required"] is False
+    assert "imagegen" in c["why"] and "login" in c["why"]
 
 
 @pytest.mark.parametrize("source", ["env", "file", "none"])
@@ -213,6 +220,7 @@ def test_the_real_entry_point_agrees_with_this_machine(monkeypatch):
     assert check(res, "openrouter_key")["value"] == "env"
     assert check(res, "ffmpeg")["ok"] is (shutil.which("ffmpeg") is not None)
     assert check(res, "uvx")["ok"] is (shutil.which("uvx") is not None)
+    assert check(res, "codex")["value"] == ("installed" if shutil.which("codex") else "not installed")
     ec = check(res, "effectcraft_cli")
     assert ec["required"] is False and (ec["value"] != "not installed") is (shutil.which("effectcraft-cli") is not None or Path("/Applications/EffectCraft.app").exists() or (Path.home() / ".local/bin/effectcraft-cli").exists())
 
@@ -279,5 +287,5 @@ def test_it_uses_no_network_and_writes_nothing():
 def test_help_explains_every_field():
     code, _, raw, err = skill("doctor", "--help")
     assert code == 0
-    for word in ("filmcraft_cli", "whisper_model", "openrouter_key", "chrome", "effectcraft_cli", "next", "Prints:", "Exits:"):
+    for word in ("filmcraft_cli", "whisper_model", "openrouter_key", "chrome", "codex", "effectcraft_cli", "next", "Prints:", "Exits:"):
         assert word in raw, word
