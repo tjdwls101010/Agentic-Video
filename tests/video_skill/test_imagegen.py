@@ -478,9 +478,15 @@ def test_a_transparent_request_that_came_back_opaque_says_so(env):
     assert code == 0 and out["results"][0]["alpha"] == {"has_alpha": False, "transparent_share": 0.0} and "no alpha" in err
 
 
-def test_an_opaque_request_reports_no_alpha_field(env):
+def test_an_opaque_request_that_came_back_opaque_reports_no_alpha_field(env):
     code, out, raw, err = env.gen()
     assert "alpha" not in out["results"][0] and "alpha" not in env.attempts()[0]
+
+
+def test_a_picture_with_alpha_reports_it_even_when_transparency_was_not_requested(env):
+    """Seen with the real Codex: a prompt that asks for a transparent background, or a transparent reference, can bring alpha without --transparent."""
+    code, out, raw, err = env.gen(FAKE_CODEX_ALPHA="1", FAKE_CODEX_SIZE="400x200")
+    assert out["results"][0]["alpha"] == {"has_alpha": True, "transparent_share": 0.75} and "75% transparent" in err
 
 
 # -- no Codex ---------------------------------------------------------------------------------------------------------------

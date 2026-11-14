@@ -34,7 +34,7 @@ main { max-width:96rem; margin:0 auto; padding:1rem 1.25rem 5rem; }
 .nhead { display:flex; flex-wrap:wrap; gap:.3rem .8rem; align-items:baseline; }
 .nname { font-weight:700; font-size:1.2rem; } .nmeta { color:var(--muted); font-size:.82rem; }
 .notes { font-size:.85rem; margin:.4rem 0 .6rem; padding-left:1.1rem; }
-.notes .at { color:var(--muted); font-size:.72rem; margin-left:.4rem; }
+.at { color:var(--muted); font-size:.72rem; margin-left:.4rem; }
 .request { padding:.9rem 0; border-top:1px dashed var(--line); }
 .rhead { display:flex; flex-wrap:wrap; gap:.3rem .8rem; align-items:baseline; margin-bottom:.6rem; }
 .rlabel { color:var(--accent); font-weight:600; } .rmeta { color:var(--muted); font-size:.82rem; }

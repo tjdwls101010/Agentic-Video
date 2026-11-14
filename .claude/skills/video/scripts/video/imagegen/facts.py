@@ -1,4 +1,4 @@
-"""What a placed picture is (its size, and for a transparent request its alpha), and placing a file under a name that must not exist yet."""
+"""What a placed picture is (its size, and its alpha when transparency was asked for or came anyway), and placing a file under a name that must not exist yet."""
 
 from __future__ import annotations
 
@@ -15,8 +15,9 @@ def measure(path: Path, transparent: bool) -> dict:
     with Image.open(path) as im:
         w, h = im.size
         out: dict = {"w": w, "h": h}
-        if transparent:
-            has_alpha = "A" in im.getbands() or "transparency" in im.info
+        has_alpha = "A" in im.getbands() or "transparency" in im.info
+        # A transparent request is answered either way; an opaque one is reported only when alpha came anyway (a prompt or a reference can bring it).
+        if transparent or has_alpha:
             share = 0.0
             if has_alpha:
                 hist = im.convert("RGBA").getchannel("A").histogram()

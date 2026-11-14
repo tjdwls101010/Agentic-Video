@@ -25,7 +25,7 @@ FAKE_CODEX_SCENARIO is a comma-separated list read by call number (the last entr
   no_last            codex exits 0 without writing the last message
   hang / hang_stubborn   never answers; hang_stubborn's child ignores SIGTERM
   logged_out         `codex login status` fails
-FAKE_CODEX_SIZE (WxH, default 1672x941), FAKE_CODEX_DELAY (seconds before answering, default 0.2; a comma-separated list is read by call number like the scenario), FAKE_CODEX_NO_ALPHA (a transparent request gets an RGB image).
+FAKE_CODEX_SIZE (WxH, default 1672x941), FAKE_CODEX_DELAY (seconds before answering, default 0.2; a comma-separated list is read by call number like the scenario), FAKE_CODEX_NO_ALPHA (a transparent request gets an RGB image), FAKE_CODEX_ALPHA (any request gets an RGBA image).
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ def write_png(path: Path, transparent: bool, scale: int = 1) -> None:
 
     w, h = (int(x) // scale for x in os.environ.get("FAKE_CODEX_SIZE", "1672x941").split("x"))
     path.parent.mkdir(parents=True, exist_ok=True)
-    if transparent and not os.environ.get("FAKE_CODEX_NO_ALPHA"):
+    if (transparent and not os.environ.get("FAKE_CODEX_NO_ALPHA")) or os.environ.get("FAKE_CODEX_ALPHA"):
         im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         im.paste((200, 40, 40, 255), (0, 0, w // 2, h // 2))   # a quarter opaque: transparent share 0.75
     else:
