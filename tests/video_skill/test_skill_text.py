@@ -119,7 +119,7 @@ def test_every_tool_and_flag_the_skill_names_exists():
 def test_every_filmcraft_command_the_skill_names_exists():
     def exists(i):
         return subprocess.run([FILMCRAFT, "describe", i], capture_output=True, text=True, timeout=60).returncode == 0
-    ids = command_ids(SKILL) - EFFECTCRAFT_IDS
+    ids = command_ids(SKILL) - EFFECTCRAFT_IDS - command_ids(section(SKILL, "How effectcraft-cli fails quietly"))
     assert {"timeline.place", "transcript.removeFillers", "transcript.createCaptions", "file.exportInterchange"} <= ids
     assert check_command_ids(ids, exists) == []
 
