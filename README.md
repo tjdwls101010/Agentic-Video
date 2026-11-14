@@ -17,6 +17,7 @@
 | 몽타주·B-roll | 클립 훑어보기, 장면 전환 감지, 음악 박자 측정과 컷 맞춤, 배경음악 더킹 |
 | 그래픽·모션 그래픽 | 타이틀, 로워서드, 콜아웃, 숫자·데이터 그래픽, 기사 캡처 같은 자료 화면 연출, 그라디언트 바 같은 레이아웃 요소, 인트로를 코드로 디자인해 얹기 |
 | 효과음 | 그래픽과 같은 페이지에서 Web Audio로 합성해 그 프레임에 붙여 넣기 |
+| 이미지 생성 | 소품·아이콘·일러스트·배경을 gpt-image로 만들어(사용자의 Codex 로그인) 페이지나 타임라인에 얹기. 후보는 컨택트 시트에서 고르고, 고른 것과 사용자의 말, Claude의 평가를 함께 남김 |
 | 단독 모션 그래픽 | 원본 영상 없이 코드나 EffectCraft 컴포지션으로 만든 모션 그래픽 영상(인트로, 스팅 등) |
 | 합성·VFX(EffectCraft) | 대상을 따라가는 이름표(모션 트래킹), 사람 뒤로 지나가는 글자(Object Matte·Roto Brush 매트), 키잉, 레이어 합성. 편집을 인터체인지 XML로 넘겨 받아 작업하고 알파 렌더나 교체 클립으로 돌려놓기 |
 | 색보정 | 스코프 수치로 중립 보정, S-Log3 등 로그 소스에 입력 LUT 적용 |
@@ -47,10 +48,11 @@
 | Apple Silicon | 로컬 음성 인식(`--engine local`, mlx-whisper)에 필요 |
 | OpenRouter 키 | 기본 전사 엔진에 필요. 없으면 `--engine local`. 아래 참고 |
 | 한글 폰트 | `filmcraft-cli exec fonts.list`에 Apple SD Gothic Neo 또는 Noto Sans KR |
+| [Codex CLI](https://developers.openai.com/codex)와 ChatGPT 로그인 (선택) | 이미지 생성(`imagegen`)에만. `codex login`(브라우저로 로그인). 생성은 사용자의 다른 Codex 작업과 같은 사용 한도를 씁니다 |
 | EffectCraft 앱과 같은 버전의 `effectcraft-cli` (선택) | 합성·추적·매트가 필요할 때만. macOS의 CLI는 앱에 들어 있지 않고 릴리스 자산(`effectcraft-cli-<버전>-macos-universal.zip`)으로 따로 받습니다. `doctor`가 명령을 줍니다 |
 | 학습 매트 모델 (선택) | 사람 같은 대상을 화면에서 깨끗하게 분리할 때. 내장 엔진은 모양으로만 구분되는 대상에서 빈 매트를 냅니다. MobileSAM(약 40 MB)은 `effectcraft-cli exec roto.model.download --params '{"id":"mobilesam","wait":true}'`로 받고(SAM 2는 가중치 파일로만 설치), 작품 폴더 밖 EffectCraft 데이터 폴더에 남습니다 |
 
-`doctor`가 이 표의 대부분을 점검하고, 고칠 명령을 버전까지 채워 줍니다. 설치는 하지 않습니다. 앱보다 새 CLI로 저장한 프로젝트는 앱이 열지 못할 수 있어 CLI 버전이 앱과 다르면 실패로 봅니다. EffectCraft는 선택 항목이라 전체 판정을 실패로 만들지 않지만, 앱 옆에 CLI가 없거나 버전이 다르면 설치 명령을 줍니다.
+`doctor`가 이 표의 대부분을 점검하고, 고칠 명령을 버전까지 채워 줍니다. 설치는 하지 않습니다. 앱보다 새 CLI로 저장한 프로젝트는 앱이 열지 못할 수 있어 CLI 버전이 앱과 다르면 실패로 봅니다. Codex는 설치 여부만 봅니다(codex 명령은 실행할 때마다 사용자의 Codex 폴더에 쓰므로 `doctor`가 부르지 않고, 로그인은 `imagegen`이 실행 때 확인합니다). EffectCraft는 선택 항목이라 전체 판정을 실패로 만들지 않지만, 앱 옆에 CLI가 없거나 버전이 다르면 설치 명령을 줍니다.
 
 ```bash
 uv run .claude/skills/video/scripts/cli.py doctor
@@ -112,6 +114,8 @@ FilmCraft에 없는 일만 합니다. 모두 `uv run .claude/skills/video/script
 | `timeline` | 시퀀스를 요약합니다(클립 수와 무관하게 짧음). 클립별 TC 상세는 파일로 줍니다 |
 | `frames` | 렌더하거나 추출한 프레임을 TC 라벨 시트 한 장으로 만듭니다. 세로 영상이면 쇼츠·릴스·틱톡 세이프존을 겹쳐 그립니다 |
 | `qc` | 결과 파일을 대상별 기준으로 검수합니다. 기준표와 각 기준의 근거(규정/플랫폼 사양/측정/관행/결정)는 `qc --help`에 있습니다. 실패가 있으면 종료 코드 3입니다 |
+| `imagegen` | 사용자의 Codex CLI로 gpt-image 그림을 만듭니다(프롬프트는 stdin, 참조 그림 `--ref`, 투명 배경 `--transparent`). 한 실행에 최대 6장을 동시에 돌리고, 모든 시도를 폴더의 장부 `imagegen.json`과 컨택트 시트 `contact-sheet.html`에 남깁니다. 그림 파일은 한 번 쓰이면 바뀌지 않습니다. Codex가 프롬프트를 바꾸지 않고 넘겼는지 Codex 자신의 세션 기록으로 확인합니다 |
+| `imagenote` | 사용자가 고른 그림, 사용자가 한 말, Claude의 평가를 장부와 시트에 기록합니다 |
 | `graphic` | HTML 페이지를 시퀀스 크기·정확한 fps의 투명 ProRes 4444 MOV(효과음 포함) 또는 투명 PNG로 렌더합니다. 프레임마다 페이지 시간을 맞춰 캡처하고, 색 태그·프레임 수를 검증한 뒤에만 기존 파일을 바꿉니다. 실제로 글자를 그린 폰트, 차단한 네트워크 요청, 타임라인에 얹는 명령을 함께 줍니다. 페이지 작성 규칙은 `graphic --help`에 있습니다 |
 
 ```bash
@@ -119,6 +123,8 @@ uv run .claude/skills/video/scripts/cli.py qc out/final.mp4 --target shorts
 uv run .claude/skills/video/scripts/cli.py frames --project out/edit.fcproj --cuts --overlay all --out sheet.png
 uv run .claude/skills/video/scripts/cli.py graphic graphics/title.html --out graphics/title.mov --project edit.fcproj --duration 3
 uv run .claude/skills/video/scripts/cli.py waveform talk.mp4 --at 137.5-140 --words talk.jsonl --out sheet.png
+uv run .claude/skills/video/scripts/cli.py imagegen mic --dir graphics/imagegen --transparent --n 4 < prompt.txt
+uv run .claude/skills/video/scripts/cli.py imagenote mic-2 --dir graphics/imagegen --choose --note "이게 제일 낫다"
 ```
 
 ## 작업 폴더 `data/`
@@ -133,6 +139,7 @@ data/
     ├── <결과물>.mp4          내보낸 결과물(딸린 자막·인계 파일도 여기)
     ├── assets/              가져온 재료. 공용 재료도 복사(APFS 복제)해 와서 작품에 필요한 것이 모두 폴더 안에 있음(두 앱 모두 미디어를 절대 경로로 저장해, 폴더를 옮기면 다시 이어야 함)
     ├── graphics/            그래픽의 원본(HTML 페이지, EffectCraft `.ecproj`)과 렌더. 프로젝트가 재생하므로 지우지 않음
+    │   └── imagegen/        생성한 그림(`<이름>-<번호>.png`), 그 장부 `imagegen.json`과 컨택트 시트
     ├── etc/                 그 밖: 다른 도구 파일, 다시 쓸 전사·자막 원고. 일회용 파일은 끝날 때 지움
     └── FilmCraft Previews/  FilmCraft가 자동으로 만드는 렌더 캐시(결과물 아님)
 ```
@@ -163,8 +170,9 @@ data/
 └── scripts/
     ├── cli.py               유일한 진입점(파서·도움말·종료 코드)
     └── video/               유일한 패키지
-        ├── transcribe/ waveform/ captions/ timeline/ frames/ qc/ graphic/ doctor/   기능
-        ├── filmcraft/ effectcraft/ whisper/ openrouter/ ffmpeg/ mp4/ chrome/ subrip.py   외부 시스템·형식
+        ├── transcribe/ waveform/ captions/ timeline/ frames/ qc/ graphic/ imagegen/ doctor/   기능
+        ├── filmcraft/ effectcraft/ whisper/ openrouter/ codex/ ffmpeg/ mp4/ chrome/ subrip.py   외부 시스템·형식
+        ├── imageledger/                                                             상태(생성 그림 장부)
         └── recognition.py timecode.py errors.py                                     공용
 tests/
 ├── video_skill/             번들 도구 테스트(명령 프로토콜, 순수 코어, 구조 규칙)
@@ -174,7 +182,7 @@ tests/
 .mcp.json                    실행 중인 앱용 브리지 MCP
 ```
 
-기능 유닛은 시스템 유닛과 공용 모듈만 가져다 쓰고, 유닛 밖에서는 `__init__.py`의 `__all__`만 씁니다. 이 규칙은 `tests/video_skill/test_structure.py`가 지킵니다.
+기능 유닛은 시스템·상태 유닛과 공용 모듈만, 시스템·상태 유닛은 공용 모듈만 가져다 쓰고, 유닛 밖에서는 `__init__.py`의 `__all__`만 씁니다. 이 규칙은 `tests/video_skill/test_structure.py`가 지킵니다.
 
 ## 테스트
 
@@ -184,10 +192,12 @@ uv run --with pytest --with pillow pytest tests/filmcraft_facts # FilmCraft 사�
 uv run --with pytest --with pillow pytest tests/effectcraft_facts  # EffectCraft 사실만(매트는 -m slow, 1분 남짓)
 FILMCRAFT_TEST_WHISPER=1 uv run --with pytest --with pillow pytest -k real_whisper  # 실제 Whisper 경로
 FILMCRAFT_TEST_OPENROUTER=1 uv run --with pytest --with pillow pytest -k real_openrouter  # 실제 OpenRouter 경로(약 1센트)
+FILMCRAFT_TEST_CODEX=1 uv run --with pytest --with pillow pytest -k real_codex  # 실제 Codex로 1장(Codex 사용 한도)
 ```
 
 - 테스트 미디어는 ffmpeg와 macOS `say`로 그때그때 만듭니다. 기대값은 생성 조건이나 표준(EBU Tech 3341, SMPTE 드롭프레임)에서 옵니다. 공급자 응답 픽스처는 합성 음성에서만 기록했습니다.
 - OpenRouter 테스트는 항상 가짜 키와 로컬 서버를 쓰므로 실제 키가 쓰이지 않습니다. 게이트 테스트만 실제 API를 부릅니다.
+- `imagegen` 테스트는 실제 Codex 0.167.1에서 측정한 이벤트·세션 기록 모양을 쓰는 가짜 `codex`와 가짜 `open`을 PATH 앞에 두고, `CODEX_HOME`을 임시 폴더로 바꿉니다. 사용자의 Codex 폴더나 브라우저에 닿지 않습니다. Codex 업데이트 뒤에는 `real_codex` 게이트 테스트를 한 번 돌려 보세요.
 - filmcraft-cli나 effectcraft-cli가 없으면 해당 테스트는 이유를 출력하며 건너뜁니다. 매트 테스트는 이 맥에 설치된 MobileSAM을 쓰고 내려받지 않으며, 모델이 없으면 건너뜁니다. `test_chrome.py`는 Chrome을 테스트 프로세스 안에서 구동하므로 `--with playwright`가 없으면 건너뜁니다. `graphic` 테스트는 진입점을 `uv run`으로 부르므로 PEP 723 헤더가 Playwright를 공급합니다.
 
 **FilmCraft와 EffectCraft는 1~2일마다 업데이트됩니다.** 업데이트 뒤 `tests/filmcraft_facts`나 `tests/effectcraft_facts`가 실패하면, 실패한 테스트의 docstring이 가리키는 SKILL.md 문장(또는 `--help` 문구)을 고치거나 지우세요. 테스트를 느슨하게 고치는 것으로 해결하면 안 됩니다.
@@ -201,6 +211,9 @@ FILMCRAFT_TEST_OPENROUTER=1 uv run --with pytest --with pillow pytest -k real_op
 - 세이프존 수치는 플랫폼의 광고 가이드 기준입니다. 일반 게시물 UI와는 조금 다를 수 있습니다.
 - EffectCraft는 스스로 알파 단계라고 밝힌 젊은 앱이고, 이 스킬은 헤드리스(`effectcraft-cli`)로만 씁니다. 실행 중인 EffectCraft 앱을 보며 함께 작업하는 브리지는 지원하지 않습니다.
 - HLG 같은 HDR 원본은 EffectCraft 기본 설정에서 FilmCraft와 다르게 해석되어, EffectCraft를 거쳐 돌아온 클립의 색이 바뀝니다.
+- 생성 그림의 픽셀 크기는 모델이 정하고 요청으로 바꿀 수 없습니다(약 1.6메가픽셀, 16:9면 1672×941). 1080p 화면 전체를 덮으면 조금, 푸시인하면 더 많이 확대됩니다.
+- `imagegen`이 프롬프트가 그대로 넘어갔는지 확인하는 근거는 Codex의 내부 세션 기록(rollout)입니다. 공식 인터페이스가 아니라 Codex 업데이트로 예고 없이 바뀔 수 있고, 그때는 그림이 `unverified`로 남습니다.
+- Codex는 생성한 그림의 사본과 호출마다의 세션을 사용자의 Codex 폴더(`~/.codex`)에 남깁니다. 이 스킬은 그것을 지우지 않습니다.
 - 그래픽의 색은 FilmCraft 안에서 왕복이 맞도록 BT.709로 태그합니다. Premiere 같은 다른 플레이어에서의 미세한 감마 차이는 확인하지 않았습니다.
 
 ## 라이선스
