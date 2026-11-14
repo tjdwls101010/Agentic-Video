@@ -180,18 +180,23 @@ def test_06_a_missing_font_falls_back_to_inter_and_only_a_layer_font_is_reported
     assert [m["font"] for m in missing] == ["NoSuchFontXYZ"] and len(missing) == 1   # the layer font, not the range one
 
 
-def test_07_colour_emoji_draw_as_nothing(tmp_path):
-    """SKILL.md › How effectcraft-cli fails quietly: a colour emoji in a text layer draws as empty space without an error, in the default font and in Apple Color Emoji alike; a monochrome symbol such as ★ draws."""
-    comp = {"width": 200, "height": 200, "duration": 0.5, "background": "#000000"}
-    p = new_project(tmp_path, "e", [("comp.new", {"name": "Emoji", **comp}), ("layer.newText", {"text": "😀", "size": 120, "fill": "#ffffff"}),
-                                    ("comp.new", {"name": "EmojiFont", **comp}), ("layer.newText", {"text": "😀", "size": 120, "fill": "#ffffff", "font": "Apple Color Emoji"}),
-                                    ("comp.new", {"name": "Star", **comp}), ("layer.newText", {"text": "★", "size": 120, "fill": "#ffffff"})])
-    lit = {}
-    for c in ("Emoji", "EmojiFont", "Star"):
+def test_07_emoji_never_draw_in_colour(tmp_path):
+    """SKILL.md › How effectcraft-cli fails quietly: emoji never draw in colour, without an error: 😀 and ✅ draw as empty space, in the default font and in Apple Color Emoji alike, while ❤️ and a flag draw as plain stand-ins; a monochrome symbol (★) draws as itself. Expected from white fill on black: no pixel with colour."""
+    comp = {"width": 260, "height": 200, "duration": 0.5, "background": "#000000"}
+    cases = {"grin": ("😀", None), "grin_font": ("😀", "Apple Color Emoji"), "check": ("✅", None), "flag": ("🇰🇷", None), "heart": ("❤️", None), "star": ("★", None)}
+    steps = []
+    for name, (text, font) in cases.items():
+        steps += [("comp.new", {"name": name, **comp}), ("layer.newText", {"text": text, "size": 120, "fill": "#ffffff", **({"font": font} if font else {})})]
+    p = new_project(tmp_path, "e", steps)
+    lit, coloured = {}, {}
+    for c in cases:
         ec("--project", str(p), "render-frame", "--comp", c, "--out", f"{c}.png", cwd=tmp_path)
-        lit[c] = sum(1 for px in Image.open(tmp_path / f"{c}.png").convert("L").get_flattened_data() if px > 40)
-    assert lit["Emoji"] == 0 and lit["EmojiFont"] == 0
-    assert lit["Star"] > 500
+        px = list(Image.open(tmp_path / f"{c}.png").convert("RGB").get_flattened_data())
+        lit[c] = sum(1 for r, g, b in px if max(r, g, b) > 40)
+        coloured[c] = sum(1 for r, g, b in px if max(r, g, b) - min(r, g, b) > 30)
+    assert all(lit[c] == 0 for c in ("grin", "grin_font", "check")), lit
+    assert all(lit[c] > 300 for c in ("flag", "heart", "star")), lit
+    assert sum(coloured.values()) == 0, coloured
 
 
 # -- How effectcraft-cli fails quietly: footage --------------------------------------------------------------------------------
@@ -456,15 +461,15 @@ def test_14_an_overlay_render_carries_the_edits_sound_unless_audio_is_off(roundt
 
 @needs_filmcraft
 def test_15_a_comp_render_lines_up_frame_for_frame_with_the_edit(roundtrip):
-    """SKILL.md › Where a picture is made: a comp from interchange keeps the sequence's rate (30000/1001) and length, so its render placed at the sequence start, over the edit or in place of the clip, shows the same source frame at each sequence frame. Expected: sequence frame 45 is source frame 20 + (45 - 30) = 35."""
+    """SKILL.md › Where a picture is made: a comp from interchange keeps the sequence's rate (30000/1001) and length, so its render placed at the sequence start, over the edit or in place of the clip, shows the same source frame at each sequence frame. Expected: sequence frame n is source frame 20 + (n - 30), checked at the clip's first frame, inside it and at its last."""
     rt, d = roundtrip, roundtrip["dir"]
     assert rt["comp"]["frameRate"] == pytest.approx(NTSC, abs=1e-6) and rt["comp"]["duration"] == pytest.approx(90 / NTSC, abs=1e-3)
     ec("--project", str(rt["ecproj"]), "render", "--out", "full.mov", "--format", "prores", cwd=d)
-    t45 = f"{45 / NTSC:.6f}"
     for name, params in (("over", {"track": "new", "audioTrack": "new", "frame": 0}), ("instead", {"track": "V1", "audioTrack": "A1", "frame": 0})):
         q = place_copy(rt, f"t15_{name}", d / "full.mov", params)
-        fc("render", "--seconds", t45, "--out", str(d / f"t15_{name}.png"), project=q, cwd=d)
-        assert frame_index(d / f"t15_{name}.png") == 35, name
+        for seq_frame in (30, 45, 61, 89):   # the clip's first frame, inside it, and its last, each sampled mid-frame
+            fc("render", "--seconds", f"{(seq_frame + 0.5) / NTSC:.6f}", "--out", str(d / f"t15_{name}_{seq_frame}.png"), project=q, cwd=d)
+            assert frame_index(d / f"t15_{name}_{seq_frame}.png") == 20 + seq_frame - 30, (name, seq_frame)
     assert fc_tracks(d / "t15_instead.fcproj", d)["V1"] == [("full.mov", 0, 90)]
     assert fc_tracks(d / "t15_over.fcproj", d)["V1"] == [("src.mp4", 30, 90)]   # over: the original is still under it
 
@@ -537,7 +542,7 @@ def test_18_hdr_footage_through_effectcraft_comes_back_in_other_colours(tmp_path
 # -- Delivery ------------------------------------------------------------------------------------------------------------------
 
 def test_19_a_direct_mp4_has_moov_at_the_end_and_effectcraft_cannot_set_loudness(tmp_path):
-    """SKILL.md › Delivery: an H.264 MP4 rendered by EffectCraft puts `moov` after `mdat` (no fast start), and EffectCraft has no command that sets loudness, so a piece with sound gets its delivery loudness from a FilmCraft export."""
+    """SKILL.md › Delivery: an H.264 MP4 rendered by EffectCraft puts `moov` after `mdat` (no fast start), and no EffectCraft command is named for loudness, so a loudness target is met by a FilmCraft export."""
     p = new_project(tmp_path, "p", [("comp.new", {"name": "C", "width": 320, "height": 180, "duration": 1})])
     ec("--project", str(p), "render", "--comp", "C", "--out", "c.mp4", "--format", "h264", cwd=tmp_path)
     assert mp4.layout(tmp_path / "c.mp4").moov_first is False
